@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- dev flavour: cleartext allowed so the phone can reach a LAN API over http (docs/red-nose.md section 15) -->
+<network-security-config>
+    <base-config cleartextTrafficPermitted="true" />
+</network-security-config>

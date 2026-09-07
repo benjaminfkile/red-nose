@@ -1,0 +1,34 @@
+# docs/red-nose.md section 16. The Magisk module packaging step joins once provisioning/magisk-module exists.
+name: android
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+      - uses: android-actions/setup-android@v3
+      - run: npm ci
+      - run: npm test
+      - run: npx tsc --noEmit
+      - name: Unit tests (dev debug)
+        run: cd android && ./gradlew :app:testDevDebugUnitTest --no-daemon
+      - name: Assemble
+        run: |
+          cd android
+          if [ "${GITHUB_REF_NAME}" = "main" ]; then ./gradlew :app:assembleProdRelease --no-daemon; else ./gradlew :app:assembleDevRelease --no-daemon; fi
+      - uses: actions/upload-artifact@v4
+        with:
+          name: red-nose-${{ github.ref_name }}-${{ github.sha }}
+          path: android/app/build/outputs/apk/**/*.apk
