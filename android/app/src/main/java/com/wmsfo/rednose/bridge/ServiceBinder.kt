@@ -31,15 +31,25 @@ class ServiceBinder(private val context: Context) {
         }
     }
 
+    @Volatile private var bound: Boolean = false
+
     fun bind(cb: OnConnected) {
         callback = cb
+        if (bound) return
         val intent = Intent(context, BeaconService::class.java)
-        context.bindService(intent, connection, Context.BIND_AUTO_CREATE)
+        try {
+            bound = context.bindService(intent, connection, Context.BIND_AUTO_CREATE)
+        } catch (_: Throwable) {
+            bound = false
+        }
     }
 
     fun unbind() {
         callback = null
-        try { context.unbindService(connection) } catch (_: Throwable) {}
+        if (bound) {
+            try { context.unbindService(connection) } catch (_: Throwable) {}
+            bound = false
+        }
         service = null
     }
 

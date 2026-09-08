@@ -13,6 +13,6 @@ data class Route(
     data class Point(
         val lat: Double,
         val lng: Double,
-        val recordedAt: String,
+        val recordedAt: String? = null,
     )
 }

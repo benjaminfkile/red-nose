@@ -19,7 +19,7 @@ import java.util.concurrent.atomic.AtomicLong
 // stops at the end (no loop).
 class ReplayFixSource(
     private val route: Route,
-    private val ratePerSecond: Int,
+    val ratePerSecond: Int,
     private val clockMs: () -> Long = System::currentTimeMillis,
     private val scope: CoroutineScope = CoroutineScope(SupervisorJob() + Dispatchers.Default),
 ) : FixSource {
