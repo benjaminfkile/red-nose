@@ -1,0 +1,7 @@
+id=rednose
+name=Red-Nose beacon
+version=0.1.0
+versionCode=100
+author=wmsfo
+description=Installs Red-Nose (com.wmsfo.rednose) as a persistent /system/app and runs the boot service that keeps the :beacon foreground service and the launcher pinned.
+updateJson=

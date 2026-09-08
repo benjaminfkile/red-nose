@@ -1,0 +1,4 @@
+# Placeholder so the empty tree stays committed.
+# CI (.github/workflows/android.yml) drops the signed APK here as
+#   system/app/RedNose/RedNose.apk
+# before zipping the module (red-nose.md 14.3, 16).

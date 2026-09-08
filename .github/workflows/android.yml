@@ -1,4 +1,4 @@
-# docs/red-nose.md section 16. The Magisk module packaging step joins once provisioning/magisk-module exists.
+# docs/red-nose.md section 16.
 name: android
 
 on:
@@ -29,10 +29,52 @@ jobs:
       - name: Unit tests (dev debug)
         run: cd android && ./gradlew :app:testDevDebugUnitTest --no-daemon
       - name: Assemble
+        id: assemble
         run: |
           cd android
-          if [ "${GITHUB_REF_NAME}" = "main" ]; then ./gradlew :app:assembleProdRelease --no-daemon; else ./gradlew :app:assembleDevRelease --no-daemon; fi
-      - uses: actions/upload-artifact@v4
+          if [ "${GITHUB_REF_NAME}" = "main" ]; then
+            ./gradlew :app:assembleProdRelease --no-daemon
+            echo "flavour=prod" >>"$GITHUB_OUTPUT"
+          else
+            ./gradlew :app:assembleDevRelease --no-daemon
+            echo "flavour=dev" >>"$GITHUB_OUTPUT"
+          fi
+      - name: Locate signed APK
+        id: apk
+        run: |
+          flavour="${{ steps.assemble.outputs.flavour }}"
+          apk="$(find android/app/build/outputs/apk/"$flavour"/release -name '*.apk' -print -quit)"
+          if [ -z "$apk" ]; then
+            echo "no APK produced under android/app/build/outputs/apk/$flavour/release" >&2
+            exit 1
+          fi
+          echo "path=$apk" >>"$GITHUB_OUTPUT"
+      - name: Package Magisk module
+        id: module
+        run: |
+          flavour="${{ steps.assemble.outputs.flavour }}"
+          version="$(cat VERSION)"
+          apk="${{ steps.apk.outputs.path }}"
+          stage="$(mktemp -d)"
+          cp -R provisioning/magisk-module/. "$stage"/
+          mkdir -p "$stage/system/app/RedNose"
+          # Drop the placeholder .gitkeep from the packaged zip and land the signed APK.
+          rm -f "$stage/system/app/RedNose/.gitkeep"
+          cp "$apk" "$stage/system/app/RedNose/RedNose.apk"
+          out="$PWD/red-nose-${flavour}-${version}-${GITHUB_SHA}.magisk.zip"
+          (cd "$stage" && zip -r "$out" .)
+          echo "path=$out" >>"$GITHUB_OUTPUT"
+          # Rename the APK to match the module zip's naming scheme.
+          apk_out="$PWD/red-nose-${flavour}-${version}-${GITHUB_SHA}.apk"
+          cp "$apk" "$apk_out"
+          echo "apk_out=$apk_out" >>"$GITHUB_OUTPUT"
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
         with:
-          name: red-nose-${{ github.ref_name }}-${{ github.sha }}
-          path: android/app/build/outputs/apk/**/*.apk
+          name: red-nose-${{ steps.assemble.outputs.flavour }}-${{ github.ref_name }}-${{ github.sha }}-apk
+          path: ${{ steps.module.outputs.apk_out }}
+      - name: Upload Magisk module
+        uses: actions/upload-artifact@v4
+        with:
+          name: red-nose-${{ steps.assemble.outputs.flavour }}-${{ github.ref_name }}-${{ github.sha }}-magisk
+          path: ${{ steps.module.outputs.path }}
