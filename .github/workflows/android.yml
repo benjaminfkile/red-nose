@@ -20,6 +20,10 @@ jobs:
           java-version: 17
       - uses: android-actions/setup-android@v3
       - run: npm ci
+      - name: Check vendored contracts against CONTRACTS_SHA
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: npm run contracts:check
       - run: npm test
       - run: npx tsc --noEmit
       - name: Unit tests (dev debug)

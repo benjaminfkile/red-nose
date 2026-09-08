@@ -131,7 +131,7 @@ class RedNoseModule(private val reactContext: ReactApplicationContext)
 
     @ReactMethod
     fun pickRouteFile(promise: Promise) {
-        val activity = currentActivity
+        val activity = reactContext.currentActivity
         if (activity == null) {
             promise.reject("no_activity", "no foreground activity")
             return
