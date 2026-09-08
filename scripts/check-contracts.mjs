@@ -6,10 +6,12 @@ import { spawn } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { mkdir, mkdtemp, readFile, readdir, rm, stat, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { join, relative, sep } from 'node:path';
+import { dirname, join, relative, resolve, sep } from 'node:path';
+import { fileURLToPath } from 'node:url';
 
 const REPO = 'benjaminfkile/wmsfo-api';
-const ROOT = new URL('..', import.meta.url).pathname;
+const HERE = dirname(fileURLToPath(import.meta.url));
+const ROOT = resolve(HERE, '..');
 const CONTRACTS_DIR = join(ROOT, 'contracts');
 
 async function main() {
