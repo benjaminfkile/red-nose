@@ -151,40 +151,44 @@ type RawNativeRedNose = {
   getInitialEnrollUrl(): Promise<string | null>;
 };
 
-const raw: RawNativeRedNose = NativeModules.RedNose;
+// Resolve NativeModules.RedNose on each call so tests can install a stub in
+// beforeAll (module-load-time capture would miss it).
+function raw(): RawNativeRedNose {
+  return NativeModules.RedNose as RawNativeRedNose;
+}
 
 export const NativeRedNose = {
   async getState(): Promise<ServiceState> {
-    const s = await raw.getState();
+    const s = await raw().getState();
     return JSON.parse(s) as ServiceState;
   },
   saveEnrollment(e: Enrollment): Promise<void> {
-    return raw.saveEnrollment(JSON.stringify(e));
+    return raw().saveEnrollment(JSON.stringify(e));
   },
   clearEnrollment(): Promise<void> {
-    return raw.clearEnrollment();
+    return raw().clearEnrollment();
   },
   setGpsOnlyFallback(enabled: boolean): Promise<void> {
-    return raw.setGpsOnlyFallback(enabled);
+    return raw().setGpsOnlyFallback(enabled);
   },
   startReplay(source: string, ratePerSecond: number): Promise<void> {
-    return raw.startReplay(source, ratePerSecond);
+    return raw().startReplay(source, ratePerSecond);
   },
   stopReplay(): Promise<void> {
-    return raw.stopReplay();
+    return raw().stopReplay();
   },
   uploadLog(): Promise<void> {
-    return raw.uploadLog();
+    return raw().uploadLog();
   },
   async getRecentLog(maxLines: number): Promise<string[]> {
-    const s = await raw.getRecentLog(maxLines);
+    const s = await raw().getRecentLog(maxLines);
     return JSON.parse(s) as string[];
   },
   pickRouteFile(): Promise<string | null> {
-    return raw.pickRouteFile();
+    return raw().pickRouteFile();
   },
   getInitialEnrollUrl(): Promise<string | null> {
-    return raw.getInitialEnrollUrl();
+    return raw().getInitialEnrollUrl();
   },
 };
 
