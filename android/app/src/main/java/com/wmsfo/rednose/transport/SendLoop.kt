@@ -34,7 +34,6 @@ class SendLoop(
         var lastSendError: String?
         var attempt: Int
         var inFlight: Boolean
-        var httpFallbackSeconds: Int
         // "connected" | "connecting" | "reconnecting" | "disconnected"
         var socketState: String
         var liveEventId: Long?
@@ -119,9 +118,10 @@ class SendLoop(
                 state.attempt = 0
                 state.lastSendError = null
                 if (!overHub) {
-                    // Accrue HTTP fallback seconds while a fix is delivered over HTTP.
+                    // Accrue HTTP fallback seconds on TransportStats (red-nose.md 8):
+                    // the heartbeat body's transport.* group is built from this field.
                     val secs = (outcome.latencyMs / 1000L).toInt().coerceAtLeast(1)
-                    state.httpFallbackSeconds = state.httpFallbackSeconds + secs
+                    stats.httpFallbackSeconds = stats.httpFallbackSeconds + secs
                 }
                 // A fix that arrived during send is a fresh one and should go out next.
                 if (fixReplaced) kick()

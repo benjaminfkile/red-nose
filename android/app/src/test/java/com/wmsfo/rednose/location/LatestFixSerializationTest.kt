@@ -16,9 +16,9 @@ import org.junit.Test
 class LatestFixSerializationTest {
 
     @Test fun recorded_at_three_fractional_digits_and_z() {
-        // 1734830000123 = 2024-12-22T02:33:20.123Z
+        // 1734830000123 ms = 2024-12-22T01:13:20.123Z (UTC).
         val stamp = FixTime.rfc3339(1_734_830_000_123L)
-        assertEquals("2024-12-22T02:33:20.123Z", stamp)
+        assertEquals("2024-12-22T01:13:20.123Z", stamp)
     }
 
     @Test fun optional_fields_serialize_as_null_when_absent() {

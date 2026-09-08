@@ -7,6 +7,7 @@ import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.async
 import kotlinx.coroutines.test.runTest
+import kotlinx.coroutines.yield
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -50,7 +51,6 @@ class SendLoopTest {
         override var lastSendError: String? = null
         override var attempt: Int = 0
         override var inFlight: Boolean = false
-        override var httpFallbackSeconds: Int = 0
         override var socketState: String = "connected"
         override var liveEventId: Long? = 7L
         override var ingestChannel: String = "wmsfo-api-dev:ingest"
@@ -193,6 +193,10 @@ class SendLoopTest {
         val loop = make(state, hub, rest)
 
         val running = async { loop.attempt() }
+        // Under runTest, the async body only starts when this coroutine suspends;
+        // yield so the attempt reads latestFix (=fix(1)) and parks on the gate
+        // before the fix is replaced.
+        yield()
 
         // Simulate a fix arriving while the send is in flight.
         state.latestFix = fix(2)
