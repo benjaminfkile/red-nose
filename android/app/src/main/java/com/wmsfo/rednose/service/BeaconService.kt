@@ -89,9 +89,6 @@ class BeaconService : Service(), SendLoop.State, HeartbeatLoop.State {
     @Volatile override var lastSendError: String? = null
     @Volatile override var attempt: Int = 0
     @Volatile override var inFlight: Boolean = false
-    override var httpFallbackSeconds: Int
-        get() = stats.httpFallbackSeconds
-        set(value) { stats.httpFallbackSeconds = value }
     override var socketState: String
         get() = stats.socketState
         set(value) { stats.socketState = value }
