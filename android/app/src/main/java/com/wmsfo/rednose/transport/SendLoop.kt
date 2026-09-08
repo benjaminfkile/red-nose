@@ -3,10 +3,12 @@ package com.wmsfo.rednose.transport
 import com.wmsfo.rednose.location.LatestFix
 import com.wmsfo.rednose.log.RingLog
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.selects.onTimeout
 import kotlinx.coroutines.selects.select
 import kotlinx.coroutines.withTimeoutOrNull
 
@@ -62,6 +64,7 @@ class SendLoop(
     fun kick() { kick.trySend(Unit) }
     fun retryNow() { retryNow.trySend(Unit) }
 
+    @OptIn(ExperimentalCoroutinesApi::class)
     fun start(scope: CoroutineScope) {
         if (job?.isActive == true) return
         job = scope.launch {
@@ -70,7 +73,7 @@ class SendLoop(
                 select<Unit> {
                     kick.onReceive { }
                     retryNow.onReceive { }
-                    kotlinx.coroutines.selects.onTimeout(fixIntervalMs) { }
+                    onTimeout(fixIntervalMs) { }
                 }
                 attempt()
             }
