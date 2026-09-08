@@ -1,0 +1,21 @@
+package com.wmsfo.rednose.transport
+
+import com.wmsfo.rednose.telemetry.TransportGroup
+
+// The transport half of the heartbeat body (contracts 4.2; red-nose.md 8).
+// Every field is mutated only on the beacon dispatcher.
+class TransportStats {
+    @Volatile var socketState: String = "disconnected"
+    @Volatile var reconnectCount: Int = 0
+    @Volatile var httpFallbackSeconds: Int = 0
+    @Volatile var lastReceiptLatencyMs: Long? = null
+    @Volatile var sendsFailedSinceBoot: Int = 0
+
+    fun snapshot(): TransportGroup = TransportGroup(
+        socketState = socketState,
+        reconnectCount = reconnectCount,
+        httpFallbackSeconds = httpFallbackSeconds,
+        lastReceiptLatencyMs = lastReceiptLatencyMs,
+        sendsFailedSinceBoot = sendsFailedSinceBoot,
+    )
+}

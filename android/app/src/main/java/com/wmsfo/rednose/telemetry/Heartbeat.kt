@@ -1,0 +1,81 @@
+package com.wmsfo.rednose.telemetry
+
+import kotlinx.serialization.Serializable
+
+// The POST /beacons/heartbeat body, contracts 4.2, with red-nose.md's `process.systemApp`
+// and `process.rootAvailable` replacing `deviceOwnerMode` (red-nose.md 18).
+// Every leaf is nullable per contracts 4.2 (a failing probe leaves its group's fields null).
+@Serializable
+data class Heartbeat(
+    val sentAt: String,
+    val power: PowerGroup? = null,
+    val radio: RadioGroup? = null,
+    val gps: GpsGroup? = null,
+    val transport: TransportGroup? = null,
+    val process: ProcessGroup? = null,
+    val identity: IdentityGroup? = null,
+)
+
+@Serializable
+data class PowerGroup(
+    val batteryPercent: Int? = null,
+    val charging: Boolean? = null,
+    val batteryTempC: Double? = null,
+    val thermalStatus: String? = null,
+)
+
+@Serializable
+data class RadioGroup(
+    val networkType: String? = null,
+    val signalDbm: Int? = null,
+    val signalLevel: Int? = null,
+    val airplaneMode: Boolean? = null,
+    val connected: Boolean? = null,
+)
+
+@Serializable
+data class GpsPermissionGroup(
+    val foreground: Boolean? = null,
+    val background: Boolean? = null,
+    val precise: Boolean? = null,
+)
+
+@Serializable
+data class GpsGroup(
+    val provider: String? = null,
+    val satellitesUsed: Int? = null,
+    val satellitesInView: Int? = null,
+    val lastFixAccuracyM: Double? = null,
+    val lastFixAgeS: Int? = null,
+    val fixesLastMinute: Int? = null,
+    val permission: GpsPermissionGroup? = null,
+)
+
+@Serializable
+data class TransportGroup(
+    val socketState: String? = null,
+    val reconnectCount: Int? = null,
+    val httpFallbackSeconds: Int? = null,
+    val lastReceiptLatencyMs: Long? = null,
+    val sendsFailedSinceBoot: Int? = null,
+)
+
+@Serializable
+data class ProcessGroup(
+    val deviceUptimeS: Long? = null,
+    val serviceUptimeS: Long? = null,
+    val serviceRestartCount: Int? = null,
+    val memoryPressure: String? = null,
+    val batteryOptimizationExempt: Boolean? = null,
+    val notificationPermission: Boolean? = null,
+    val systemApp: Boolean? = null,
+    val rootAvailable: Boolean? = null,
+)
+
+@Serializable
+data class IdentityGroup(
+    val deviceModel: String? = null,
+    val androidVersion: String? = null,
+    val appVersion: String? = null,
+    val clockSkewMs: Long? = null,
+)
