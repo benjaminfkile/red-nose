@@ -11,6 +11,7 @@ import android.os.PowerManager
 import android.os.RemoteCallbackList
 import android.os.SystemClock
 import com.wmsfo.rednose.BuildConfig
+import com.wmsfo.rednose.checklist.ChecklistProbe
 import com.wmsfo.rednose.ipc.IBeaconListener
 import com.wmsfo.rednose.ipc.IBeaconService
 import com.wmsfo.rednose.location.FixSource
@@ -69,6 +70,7 @@ class BeaconService : Service(), SendLoop.State, HeartbeatLoop.State {
     private lateinit var gnss: GnssStats
     private lateinit var telemetry: TelemetryCollector
     private lateinit var connectivity: Connectivity
+    private lateinit var checklist: ChecklistProbe
     private lateinit var listeners: RemoteCallbackList<IBeaconListener>
     private lateinit var locationHandlerThread: HandlerThread
     private lateinit var locationHandler: Handler
@@ -120,6 +122,7 @@ class BeaconService : Service(), SendLoop.State, HeartbeatLoop.State {
         locationHandler = Handler(locationHandlerThread.looper)
         gnss = GnssStats(this, locationHandler).also { it.start() }
         connectivity = Connectivity(this).also { it.start() }
+        checklist = ChecklistProbe(this)
         listeners = RemoteCallbackList<IBeaconListener>()
         telemetry = TelemetryCollector(
             context = this,
@@ -318,11 +321,11 @@ class BeaconService : Service(), SendLoop.State, HeartbeatLoop.State {
                     source = it.source,
                     index = it.index,
                     total = it.total,
-                    ratePerSecond = 0, // filled in R2 when replay is fully driven
+                    ratePerSecond = it.ratePerSecond,
                 )
             },
             replayAllowed = e != null && e.apiBaseUrl != prodBase,
-            checklist = Checklist(serviceRunning = startedForeground),
+            checklist = checklist.read(),
             appVersion = BuildConfig.VERSION_NAME,
         )
         return BeaconJson.encodeToString(state)

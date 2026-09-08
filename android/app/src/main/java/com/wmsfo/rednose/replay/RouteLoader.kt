@@ -8,17 +8,13 @@ import kotlinx.coroutines.withContext
 import okhttp3.OkHttpClient
 import okhttp3.Request
 
-// Loads a route object from a URL or a content:// URI (red-nose.md 11).
-// The vendored contracts' route.schema.json validation hook stays a stub until R2
-// vendors contracts; we still parse against the Route type as a first line.
+// Loads a route object from a URL or a content:// URI (red-nose.md 11) and
+// validates its bytes against the vendored contracts/schema/route.schema.json
+// (contracts 1.4 / 13) before returning the parsed Route.
 class RouteLoader(
     private val context: Context,
     private val client: OkHttpClient = OkHttpClient(),
-    private val validate: (Route) -> Unit = { r ->
-        // Stub validation kept for the R2 vendored schema hook.
-        require(r.schemaVersion == 1) { "route.schemaVersion must be 1" }
-        require(r.points.size in 2..50_000) { "route.points must be 2..50000" }
-    },
+    private val schema: RouteSchema = RouteSchema(context),
 ) {
     suspend fun load(source: String): Route = withContext(Dispatchers.IO) {
         val bytes = when {
@@ -37,8 +33,11 @@ class RouteLoader(
             }
             else -> error("route source must be http(s):// or content://")
         }
-        val route = BeaconJson.decodeFromString<Route>(String(bytes, Charsets.UTF_8))
-        validate(route)
+        val json = String(bytes, Charsets.UTF_8)
+        schema.validate(json)
+        val route = BeaconJson.decodeFromString<Route>(json)
+        require(route.schemaVersion == 1) { "route.schemaVersion must be 1" }
+        require(route.points.size in 2..50_000) { "route.points must be 2..50000" }
         route
     }
 }
