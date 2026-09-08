@@ -123,7 +123,7 @@ class BeaconService : Service(), SendLoop.State, HeartbeatLoop.State {
         locationHandler = Handler(locationHandlerThread.looper)
         gnss = GnssStats(this, locationHandler).also { it.start() }
         connectivity = Connectivity(this).also { it.start() }
-        listeners = RemoteCallbackList()
+        listeners = RemoteCallbackList<IBeaconListener>()
         telemetry = TelemetryCollector(
             context = this,
             log = ring,
