@@ -70,7 +70,7 @@ function KV({ label, value }: { label: string; value: unknown }) {
   return (
     <View style={styles.row}>
       <Text style={styles.rowLabel}>{label}</Text>
-      <Text style={styles.rowValue}>{value == null ? '—' : String(value)}</Text>
+      <Text style={styles.rowValue}>{value == null ? '-' : String(value)}</Text>
     </View>
   );
 }

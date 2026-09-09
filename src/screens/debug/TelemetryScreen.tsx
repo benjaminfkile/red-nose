@@ -10,11 +10,11 @@ export function TelemetryScreen(props: { state: ServiceState }) {
   return (
     <ScrollView contentContainerStyle={styles.root}>
       <Section title="last heartbeat">
-        <Row label="accepted at" value={s.lastHeartbeatAcceptedAt ?? '—'} />
-        <Row label="error" value={s.lastHeartbeatError ?? '—'} />
-        <Row label="clock skew" value={s.clockSkewMs == null ? '—' : `${s.clockSkewMs} ms`} />
-        <Row label="live event" value={s.liveEventId == null ? '—' : `#${s.liveEventId}`} />
-        <Row label="active" value={s.isActive == null ? '—' : String(s.isActive)} />
+        <Row label="accepted at" value={s.lastHeartbeatAcceptedAt ?? '-'} />
+        <Row label="error" value={s.lastHeartbeatError ?? '-'} />
+        <Row label="clock skew" value={s.clockSkewMs == null ? '-' : `${s.clockSkewMs} ms`} />
+        <Row label="live event" value={s.liveEventId == null ? '-' : `#${s.liveEventId}`} />
+        <Row label="active" value={s.isActive == null ? '-' : String(s.isActive)} />
         <Row label="revoked" value={String(s.revoked)} />
       </Section>
       <Section title="telemetry (heartbeat body)">
@@ -40,7 +40,7 @@ function Body({ body }: { body: Heartbeat }) {
         <View key={name} style={styles.group}>
           <Text style={styles.groupLabel}>{name}</Text>
           {group == null ? (
-            <Row label="(null)" value="—" />
+            <Row label="(null)" value="-" />
           ) : (
             Object.entries(group).map(([k, v]) => (
               <Row key={k} label={k} value={formatValue(v)} />
@@ -53,7 +53,7 @@ function Body({ body }: { body: Heartbeat }) {
 }
 
 function formatValue(v: unknown): string {
-  if (v == null) return '—';
+  if (v == null) return '-';
   if (typeof v === 'object') return JSON.stringify(v);
   return String(v);
 }
