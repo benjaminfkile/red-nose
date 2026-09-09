@@ -1,10 +1,10 @@
-# Device runbook — Moto G 5G (2024), `fogo` / XT2417-1
+# Device runbook: Moto G 5G (2024), `fogo` / XT2417-1
 
 The beacon phone is a Motorola Moto G 5G (2024), codename `fogo`, model
 XT2417-1, running Android 15 on stock firmware (debloated, not a custom
 ROM) so Google Play services, the fused location provider, and the modem
 stay exactly as shipped. Red-Nose runs as a persistent system app under
-`/system/app/RedNose/`, rooted with Magisk. This file is the runbook — the
+`/system/app/RedNose/`, rooted with Magisk. This file is the runbook: the
 parts that cost real time to learn on this specific phone.
 
 Source: `docs/red-nose.md` §14.4. Where they differ, that section wins.
@@ -38,7 +38,7 @@ the bootloader unlocked, so it is usable as a fallback.
 
 The exact stock `super.img` for this build is not downloadable anywhere,
 so it was **dumped through root** and kept in the restore kit. Any
-Motorola OTA that changes `super` invalidates that dump — reflash stock
+Motorola OTA that changes `super` invalidates that dump; reflash stock
 `boot.img` before letting an OTA run.
 
 ## 4. Fastboot goes through a Linux machine
@@ -101,7 +101,7 @@ in the list.
 
 - The bootloader stays unlocked (a Magisk-patched boot image cannot pass
   verified boot with the bootloader locked; relocking bricks or
-  boot-loops). A fastboot wipe is one cable away — accepted, because the
+  boot-loops). A fastboot wipe is one cable away, and that is accepted because the
   phone is mounted, plugged in, and touched by nobody.
 - A factory reset from Settings stays possible, but Settings is
   unreachable behind the launcher lockdown.

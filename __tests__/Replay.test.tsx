@@ -60,7 +60,7 @@ describe('replay gate (R3 ac 765)', () => {
     });
     // The disabled banner must be visible.
     expect(collectText(tree.root)).toContain('replay is disabled');
-    // No start button is rendered at all — the block short-circuits the form.
+    // No start button is rendered at all; the block short-circuits the form.
     const buttons = tree.root.findAllByType(TouchableOpacity);
     expect(buttons.length).toBe(0);
     // And no attempt was made to call the native module.

@@ -20,26 +20,26 @@ export function StatusScreen(props: StatusScreenProps) {
   const [sheetOpen, setSheetOpen] = useState(false);
 
   const heartbeatAge = useHeartbeatAge(s.lastHeartbeatAcceptedAt);
-  const activeLabel = s.isActive == null ? '—' : s.isActive ? 'active' : 'spare';
+  const activeLabel = s.isActive == null ? '-' : s.isActive ? 'active' : 'spare';
   const liveEventLabel = s.liveEventId == null ? 'no live event' : `event #${s.liveEventId}`;
-  const skewLabel = s.clockSkewMs == null ? '—' : `${s.clockSkewMs} ms`;
+  const skewLabel = s.clockSkewMs == null ? '-' : `${s.clockSkewMs} ms`;
 
   return (
     <ScrollView contentContainerStyle={styles.root}>
       {s.revoked ? (
         <View style={styles.revokedBanner}>
-          <Text style={styles.revokedText}>revoked — rotate and re-enroll</Text>
+          <Text style={styles.revokedText}>revoked: rotate and re-enroll</Text>
         </View>
       ) : null}
 
       <View style={styles.card}>
-        <Row label="beacon" value={s.enrollment?.name ?? '—'} />
-        <Row label="role" value={s.enrollment?.role ?? '—'} />
+        <Row label="beacon" value={s.enrollment?.name ?? '-'} />
+        <Row label="role" value={s.enrollment?.role ?? '-'} />
         <Row label="socket" value={s.socketState} />
         <Row label="live event" value={liveEventLabel} />
         <Row label="active" value={activeLabel} />
-        <Row label="last delivered seq" value={s.lastDeliveredSeqLocal?.toString() ?? '—'} />
-        <Row label="receipt latency" value={s.lastReceiptLatencyMs != null ? `${s.lastReceiptLatencyMs} ms` : '—'} />
+        <Row label="last delivered seq" value={s.lastDeliveredSeqLocal?.toString() ?? '-'} />
+        <Row label="receipt latency" value={s.lastReceiptLatencyMs != null ? `${s.lastReceiptLatencyMs} ms` : '-'} />
         <Row label="heartbeat age" value={heartbeatAge} />
         <Row label="clock skew" value={skewLabel} />
       </View>
@@ -74,9 +74,9 @@ function Row({ label, value }: { label: string; value: string }) {
 
 function useHeartbeatAge(iso: string | null): string {
   return useMemo(() => {
-    if (!iso) return '—';
+    if (!iso) return '-';
     const t = Date.parse(iso);
-    if (Number.isNaN(t)) return '—';
+    if (Number.isNaN(t)) return '-';
     const s = Math.max(0, Math.floor((Date.now() - t) / 1000));
     return `${s} s`;
   }, [iso]);
