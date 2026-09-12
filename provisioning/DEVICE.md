@@ -119,9 +119,12 @@ in the list.
 3. Root with Magisk (§1, §2, §5, §7).
 4. Flash the Red-Nose Magisk module (built in CI, `red-nose-<flavour>-<version>-<sha>.magisk.zip`).
 5. Reboot. Confirm `adb shell dumpsys package com.wmsfo.rednose` shows
-   `FLAG_SYSTEM` and `persistent=true`.
+   `flags=[ SYSTEM ... PERSISTENT ...]` (Android 14 and earlier print a
+   `persistent=true` line instead).
 6. Run `provisioning/provision.sh`. Every row must print `ok`.
-7. Enroll (in-app QR against a `rednose://enroll?...` URL from the API).
+7. Enroll: the app opens the Google code scanner on its own; scan the QR
+   the admin panel shows for a newly minted beacon, or type the API base URL
+   and the `wbk_` key under "enter manually".
 
 ## 11. Updating Red-Nose
 
@@ -130,3 +133,62 @@ The module installer clears the package manager parse cache (`/data/system/packa
 Flash the newer `red-nose-<flavour>-<version>-<sha>.magisk.zip` and
 reboot. Never `pm install`; a system-app update through `pm install`
 lands in `/data/app` and leaves the `/system/app` copy stale.
+
+## 12. Verifying a flash
+
+Plug the phone into any machine with adb (no fastboot needed), wait about a
+minute after boot, then:
+
+```
+adb shell su -c "md5sum /system/app/RedNose/RedNose.apk"        # matches the APK inside the zip you flashed
+adb shell dumpsys package com.wmsfo.rednose | grep -c MlKitInitProvider   # non-zero: the manifest was re-parsed
+adb shell logcat -d -s AndroidRuntime:E ReactNativeJS:E rednose:*    # empty apart from the log tag's own lines
+adb shell dumpsys activity services com.wmsfo.rednose | grep isForeground   # isForeground=true
+adb shell cmd package resolve-activity --brief -c android.intent.category.HOME -a android.intent.action.MAIN | tail -n1
+                                                                 # com.wmsfo.rednose/.MainActivity
+adb exec-out screencap -p > shot.png                             # what the screen shows
+bash provisioning/provision.sh                                   # every row ok
+```
+
+An enrolled phone boots to the Status screen (beacon name, socket state,
+live event, delivered seq, receipt latency, heartbeat age, clock skew). Its
+"debug" button opens the Telemetry, Fix log, Socket log and Failure log
+tabs; "settings" holds the enrollment. An unenrolled phone boots into the
+code scanner; the X returns to the scan screen, which also offers manual
+entry.
+
+The proof that the whole pipeline works is the CDN: `live/location.json`
+carries the phone's position within a second of the fix, with `seq`
+climbing. If the Status screen shows fixes delivered but the CDN does not
+move, the problem is behind the API, not on the phone.
+
+Useful shell habits on this phone:
+
+- Any argument that starts with `/` gets rewritten by Git Bash on Windows
+  unless `MSYS_NO_PATHCONV=1` is set; `provision.sh` sets it itself.
+- Nested quotes through `adb shell su -c` are consumed twice: write `\\\"`
+  in a bash double-quoted string to deliver a `"` to the command on the
+  phone (`provision.sh` does this for the Magisk policy rows).
+- The Magisk "Shell was granted Superuser rights" toast appears on every
+  root command from adb; it is not an error.
+
+## 13. Where the phone stands
+
+Updated 2026-09-12.
+
+- Stock 193-20-14, rooted, debloated, the Motorola updater hidden by a
+  second Magisk module (`no-moto-ota`) so no system update can ever try to
+  apply against the patched boot image. The restore kit is complete.
+- Red-Nose dev flavour installed as the `rednose` Magisk module, launcher
+  lockdown active, keyguard off, `provision.sh` green.
+- Enrolled against the dev API as beacon `red-nose-DEV` (role admin), live
+  event #1, heartbeats and fixes delivered over HTTP; the dev CDN publishes
+  the phone's position.
+- The SignalR socket to the hub does not connect from the phone: every
+  attempt logs `socket join or start failed ... Timed out waiting for
+  10000 ms`, so `socketState` stays `reconnecting` and delivery runs on the
+  HTTP door. The hub address comes from the API's `WMSFO_HUB_URL`; whether
+  that host is reachable from the phone's network is a backend question.
+- To take the phone out of lockdown: `adb shell su -c "rm -rf
+  /data/adb/modules/rednose"` and reboot; the stock launcher returns.
+  Re-flash the module to put it back.
