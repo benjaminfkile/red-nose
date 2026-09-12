@@ -505,7 +505,7 @@ The phone is rooted and Red-Nose is a persistent system app. There is no device 
 1. Factory reset; skip account setup; enable developer options and USB debugging. No Google account is ever added.
 2. Root with Magisk: unlock the bootloader, patch the boot image, flash it, confirm `adb shell su -c id` answers `uid=0(root)`. The device-specific steps are in 14.4 and `provisioning/DEVICE.md`.
 3. Flash the Red-Nose Magisk module (`provisioning/magisk-module/`, built in CI, section 16). It places the signed APK at `/system/app/RedNose/RedNose.apk` and `service.sh` (section 5.3). Reboot.
-4. Confirm the install: `adb shell dumpsys package com.wmsfo.rednose` shows `FLAG_SYSTEM` and `persistent=true`.
+4. Confirm the install: `adb shell dumpsys package com.wmsfo.rednose` shows `SYSTEM` and `PERSISTENT` in `flags=[ ... ]` (`persistent=true` on Android 14 and earlier). `provisioning/DEVICE.md` section 12 is the full check.
 5. Run `provision.sh` (14.2), then enroll (section 9).
 
 ### 14.2 Provisioning from the shell (`provision.sh`, root)
@@ -554,7 +554,8 @@ The beacon phone is a Moto G 5G (2024), Motorola codename `fogo`, model XT2417-1
 - Flavours `dev` and `prod` differ only in `BuildConfig` fields (contracts 8.5: `REDNOSE_DEFAULT_API_BASE_URL`, `REDNOSE_PROD_API_BASE_URL`, the intervals, backoff, ring size) and the network security config (dev allows cleartext). Same application id, so a phone holds one flavour at a time.
 - The manifest sets `android:persistent="true"` and requests only normal and runtime permissions, never a signature or privileged one, so the package stays a plain `/system/app` install with no allowlist (section 14.3).
 - `VERSION` holds the semantic version; the Gradle build reads it into `versionName` and derives `versionCode` from it (`major * 10000 + minor * 100 + patch`).
-- One release signing key, stored outside the repository; CI signs with it from a secret.
+- Release builds are signed with the checked-in `android/app/debug.keystore`, in CI and locally alike, so any build can replace any other on the phone. A real release key stored outside the repository is a prod concern for later (section 19).
+- Local builds: README.md has the exact commands. Build the phone's ABI only (`-PreactNativeArchitectures=arm64-v8a`); on Windows enable long paths or clone to a short path, or the native build of a dependency loops forever on a 260-character path.
 - `CONTRACTS_SHA` names the API commit whose `contracts/` is vendored; the JS tests validate the fix and heartbeat bodies against those schemas.
 
 ---
@@ -605,4 +606,5 @@ Every drill is logged in the repository under `docs/soak/<date>.md` with the obs
 
 ## 19. Needs a decision
 
-Nothing at the moment. Add here as it comes up.
+- Release signing. Every build, including prod, is signed with the checked-in debug keystore (section 15). Before the phone flies with a prod build, decide whether a dedicated release key (kept outside the repository, supplied to CI as a secret) is worth the one-time re-provisioning it forces, since a signature change means uninstalling the module and re-enrolling.
+- The hub socket from the phone. The SignalR connection to `WMSFO_HUB_URL` times out on every attempt from the enrolled phone while heartbeats and fixes over HTTP work, so delivery runs on the HTTP door alone. Decide whether the dev hub host is meant to be reachable from the phone's network (fleet up, listener and security group), or whether the socket path only counts on prod.
