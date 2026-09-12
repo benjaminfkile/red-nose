@@ -11,6 +11,7 @@ import com.facebook.react.bridge.ReactMethod
 import com.facebook.react.modules.core.DeviceEventManagerModule
 import com.google.mlkit.vision.barcode.common.Barcode
 import com.google.mlkit.vision.codescanner.GmsBarcodeScannerOptions
+import com.google.mlkit.common.MlKit
 import com.google.mlkit.vision.codescanner.GmsBarcodeScanning
 import com.wmsfo.rednose.ipc.IBeaconListener
 import com.wmsfo.rednose.ipc.IBeaconService
@@ -173,17 +174,22 @@ class RedNoseModule(private val reactContext: ReactApplicationContext)
             promise.reject("no_activity", "no foreground activity")
             return
         }
-        val options = GmsBarcodeScannerOptions.Builder()
-            .setBarcodeFormats(Barcode.FORMAT_QR_CODE)
-            .enableAutoZoom()
-            .build()
-        val client = GmsBarcodeScanning.getClient(activity, options)
-        client.startScan()
-            .addOnSuccessListener { barcode -> promise.resolve(barcode.rawValue) }
-            .addOnCanceledListener { promise.resolve(null) }
-            .addOnFailureListener { e ->
-                promise.reject("scanner_unavailable", e.message ?: e.javaClass.simpleName)
-            }
+        try {
+            MlKit.initialize(reactContext.applicationContext)
+            val options = GmsBarcodeScannerOptions.Builder()
+                .setBarcodeFormats(Barcode.FORMAT_QR_CODE)
+                .enableAutoZoom()
+                .build()
+            val client = GmsBarcodeScanning.getClient(activity, options)
+            client.startScan()
+                .addOnSuccessListener { barcode -> promise.resolve(barcode.rawValue) }
+                .addOnCanceledListener { promise.resolve(null) }
+                .addOnFailureListener { e ->
+                    promise.reject("scanner_unavailable", e.message ?: e.javaClass.simpleName)
+                }
+        } catch (e: Throwable) {
+            promise.reject("scanner_unavailable", e.message ?: e.javaClass.simpleName)
+        }
     }
 
     // The MainActivity forwards the deep link URL through this hook.

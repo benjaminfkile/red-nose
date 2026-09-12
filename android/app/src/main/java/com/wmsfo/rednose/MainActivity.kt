@@ -12,6 +12,7 @@ import com.facebook.react.defaults.DefaultNewArchitectureEntryPoint.fabricEnable
 import com.facebook.react.defaults.DefaultReactActivityDelegate
 import com.google.android.gms.common.moduleinstall.ModuleInstall
 import com.google.android.gms.common.moduleinstall.ModuleInstallRequest
+import com.google.mlkit.common.MlKit
 import com.google.mlkit.vision.codescanner.GmsBarcodeScanning
 import com.wmsfo.rednose.bridge.RedNoseModule
 
@@ -33,14 +34,22 @@ class MainActivity : ReactActivity() {
 
   // Ask Play services to install the code-scanner module now so the first
   // scanQrCode() call does not wait (red-nose.md 9.1).
+  // Best effort: a warm-up problem must never take the launcher activity down.
   private fun warmCodeScannerModule() {
-    val client = ModuleInstall.getClient(this)
-    val request = ModuleInstallRequest.newBuilder()
-      .addApi(GmsBarcodeScanning.getClient(this))
-      .build()
-    client.installModules(request)
-      .addOnSuccessListener { Log.i("rednose", "code scanner module warm-up requested") }
-      .addOnFailureListener { e -> Log.w("rednose", "code scanner module warm-up failed: ${e.message}") }
+    try {
+      // ML Kit normally initialises itself through a content provider; on this
+      // persistent system app that has not happened by the time onCreate runs.
+      MlKit.initialize(applicationContext)
+      val client = ModuleInstall.getClient(this)
+      val request = ModuleInstallRequest.newBuilder()
+        .addApi(GmsBarcodeScanning.getClient(this))
+        .build()
+      client.installModules(request)
+        .addOnSuccessListener { Log.i("rednose", "code scanner module warm-up requested") }
+        .addOnFailureListener { e -> Log.w("rednose", "code scanner module warm-up failed: ${e.message}") }
+    } catch (e: Throwable) {
+      Log.w("rednose", "code scanner warm-up skipped: ${e.message}")
+    }
   }
 
   // Immersive-sticky: no status or navigation bar on the kiosk phone (red-nose.md 14.2).
