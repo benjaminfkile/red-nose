@@ -12,7 +12,7 @@ import com.facebook.react.defaults.DefaultNewArchitectureEntryPoint.fabricEnable
 import com.facebook.react.defaults.DefaultReactActivityDelegate
 import com.google.android.gms.common.moduleinstall.ModuleInstall
 import com.google.android.gms.common.moduleinstall.ModuleInstallRequest
-import com.google.mlkit.common.MlKit
+import com.wmsfo.rednose.bridge.MlKitInit
 import com.google.mlkit.vision.codescanner.GmsBarcodeScanning
 import com.wmsfo.rednose.bridge.RedNoseModule
 
@@ -39,7 +39,7 @@ class MainActivity : ReactActivity() {
     try {
       // ML Kit normally initialises itself through a content provider; on this
       // persistent system app that has not happened by the time onCreate runs.
-      MlKit.initialize(applicationContext)
+      MlKitInit.ensure(this)
       val client = ModuleInstall.getClient(this)
       val request = ModuleInstallRequest.newBuilder()
         .addApi(GmsBarcodeScanning.getClient(this))

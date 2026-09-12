@@ -125,6 +125,8 @@ in the list.
 
 ## 11. Updating Red-Nose
 
+The module installer clears the package manager parse cache (`/data/system/package_cache`); without that a reflash with the same versionCode keeps the old manifest and new components silently do not exist. If you ever copy an APK into `/system/app/RedNose` by hand, clear that directory yourself before rebooting.
+
 Flash the newer `red-nose-<flavour>-<version>-<sha>.magisk.zip` and
 reboot. Never `pm install`; a system-app update through `pm install`
 lands in `/data/app` and leaves the `/system/app` copy stale.

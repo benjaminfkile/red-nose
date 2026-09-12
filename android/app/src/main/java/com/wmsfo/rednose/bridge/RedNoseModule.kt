@@ -1,5 +1,6 @@
 package com.wmsfo.rednose.bridge
 
+import android.util.Log
 import android.app.Activity
 import android.content.Intent
 import com.facebook.react.bridge.ActivityEventListener
@@ -11,7 +12,6 @@ import com.facebook.react.bridge.ReactMethod
 import com.facebook.react.modules.core.DeviceEventManagerModule
 import com.google.mlkit.vision.barcode.common.Barcode
 import com.google.mlkit.vision.codescanner.GmsBarcodeScannerOptions
-import com.google.mlkit.common.MlKit
 import com.google.mlkit.vision.codescanner.GmsBarcodeScanning
 import com.wmsfo.rednose.ipc.IBeaconListener
 import com.wmsfo.rednose.ipc.IBeaconService
@@ -175,7 +175,7 @@ class RedNoseModule(private val reactContext: ReactApplicationContext)
             return
         }
         try {
-            MlKit.initialize(reactContext.applicationContext)
+            MlKitInit.ensure(reactContext)
             val options = GmsBarcodeScannerOptions.Builder()
                 .setBarcodeFormats(Barcode.FORMAT_QR_CODE)
                 .enableAutoZoom()
@@ -185,10 +185,12 @@ class RedNoseModule(private val reactContext: ReactApplicationContext)
                 .addOnSuccessListener { barcode -> promise.resolve(barcode.rawValue) }
                 .addOnCanceledListener { promise.resolve(null) }
                 .addOnFailureListener { e ->
-                    promise.reject("scanner_unavailable", e.message ?: e.javaClass.simpleName)
+                    Log.w("rednose", "scanQrCode failed", e)
+                    promise.reject("scanner_unavailable", "${e.javaClass.simpleName}: ${e.message}")
                 }
         } catch (e: Throwable) {
-            promise.reject("scanner_unavailable", e.message ?: e.javaClass.simpleName)
+            Log.w("rednose", "scanQrCode threw", e)
+            promise.reject("scanner_unavailable", "${e.javaClass.simpleName}: ${e.message}")
         }
     }
 

@@ -18,6 +18,13 @@ fi
 set_perm_recursive "$MODPATH/system/app/RedNose" 0 0 0755 0644
 set_perm "$MODPATH/service.sh" 0 0 0755
 
+# Every build ships the same versionCode, and the package manager caches its parse
+# of a system APK by path. Without dropping that cache a reflash keeps the old
+# manifest (activities, services, providers) and only swaps the code. Safe: it is
+# a cache, rebuilt on the next boot.
+rm -rf /data/system/package_cache/*
+ui_print "- Cleared the package manager parse cache (same versionCode reflash)"
+
 ui_print "- Installed RedNose.apk to /system/app/RedNose/"
 ui_print "- Installed service.sh (root watchdog + launcher re-assert)"
 ui_print "- Reboot, then run provisioning/provision.sh once."
