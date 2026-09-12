@@ -48,8 +48,11 @@ class SocketLoop(
                     conn.on("ChannelEvent", ::onEnvelope, JsonElement::class.java)
                     conn.onClosed { cause -> closedSignal.trySend(cause) }
                     withTimeout(10_000) { conn.start().await() }
+                    // The hub methods return void. The Completable overload completes on the
+                    // server's completion message; the Single<T> overload never does (it cannot
+                    // emit a null result), so it would time out on every join and send.
                     withTimeout(10_000) {
-                        conn.invoke(Void::class.java, "JoinPrivateChannel",
+                        conn.invoke("JoinPrivateChannel",
                             enrollment.ingestChannel, enrollment.key).await()
                     }
                     attempt = 0
@@ -88,7 +91,7 @@ class SocketLoop(
         val payload = BeaconJson.encodeToString(fix.toPayload())
         return try {
             withTimeout(10_000) {
-                conn.invoke(Void::class.java, "SendToChannel", channel, "location", payload).await()
+                conn.invoke("SendToChannel", channel, "location", payload).await()
             }
             true
         } catch (_: Exception) {
@@ -117,7 +120,7 @@ class SocketLoop(
                 // Re-invoke JoinPrivateChannel immediately and kick the send loop; on
                 // failure this closes the connection and takes the failure branch.
                 try {
-                    conn.invoke(Void::class.java, "JoinPrivateChannel",
+                    conn.invoke("JoinPrivateChannel",
                         enrollment.ingestChannel, enrollment.key).subscribe(
                         { sendLoop.kick() },
                         { closedSignal.trySend(it) },
