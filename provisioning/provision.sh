@@ -153,6 +153,11 @@ fi
 policy="$(adb_su_out "magisk --sqlite \\\"SELECT policy FROM policies WHERE uid=$app_uid\\\"")"
 expect "magisk su policy for uid $app_uid == allow" "policy=2" "$policy"
 
+section "immersive mode hint already confirmed"
+adb_su "settings put secure immersive_mode_confirmations confirmed" >/dev/null 2>&1 || true
+imm="$(adb_su_out "settings get secure immersive_mode_confirmations")"
+expect "immersive_mode_confirmations == confirmed" "confirmed" "$imm"
+
 section "safe boot disallowed"
 adb_su "settings put global safe_boot_disallowed 1" >/dev/null 2>&1 || true
 sb="$(adb_su_out "settings get global safe_boot_disallowed")"
