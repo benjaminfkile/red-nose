@@ -140,6 +140,19 @@ adb_su "cmd package set-home-activity com.wmsfo.rednose/.MainActivity" >/dev/nul
 home="$(adb_su_out "cmd package resolve-activity --brief -c android.intent.category.HOME -a android.intent.action.MAIN | tail -n1")"
 expect "HOME resolves to $HOME_ACTIVITY" "$HOME_ACTIVITY" "$home"
 
+section "keyguard off (boots straight to the launcher)"
+adb_su "locksettings set-disabled true" >/dev/null 2>&1 || true
+kg="$(adb_su_out "locksettings get-disabled")"
+expect "locksettings get-disabled == true" "true" "$kg"
+
+section "root for the app (Magisk policy, no on-screen prompt)"
+app_uid="$(adb_su_out "stat -c %u /data/data/$PKG")"
+if [ -n "$app_uid" ]; then
+  adb_su "magisk --sqlite \\\"REPLACE INTO policies (uid,policy,until,logging,notification) VALUES ($app_uid,2,0,1,0)\\\"" >/dev/null 2>&1 || true
+fi
+policy="$(adb_su_out "magisk --sqlite \\\"SELECT policy FROM policies WHERE uid=$app_uid\\\"")"
+expect "magisk su policy for uid $app_uid == allow" "policy=2" "$policy"
+
 section "safe boot disallowed"
 adb_su "settings put global safe_boot_disallowed 1" >/dev/null 2>&1 || true
 sb="$(adb_su_out "settings get global safe_boot_disallowed")"
@@ -148,9 +161,12 @@ expect "safe_boot_disallowed == 1" "1" "$sb"
 section "system app + persistent"
 flags="$(adb_su_out "dumpsys package $PKG | grep -E 'flags=|persistent='")"
 expect_contains "FLAG_SYSTEM set" "SYSTEM" "$flags"
-# `persistent=true` is only present for a persistent app; the manifest sets
-# it, but a non-system install of the same package would not carry FLAG_SYSTEM.
-expect_contains "persistent=true" "persistent=true" "$flags"
+# Android 14 and earlier print a `persistent=true` line; Android 15 reports it as
+# PERSISTENT inside flags=[ ... ]. Accept either.
+case "$flags" in
+  *"persistent=true"*|*" PERSISTENT "*) record_pass "persistent (manifest android:persistent honoured)" ;;
+  *) record_fail "persistent (manifest android:persistent honoured)" "neither persistent=true nor PERSISTENT flag" ;;
+esac
 
 # --- summary --------------------------------------------------------------
 

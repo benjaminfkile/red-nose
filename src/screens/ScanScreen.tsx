@@ -1,16 +1,12 @@
-// QR scan step of enrollment (red-nose.md 9.1).  Uses Vision Camera's built-in
-// code scanner (v5 useObjectOutput with types: ['qr']); a scanned value is
-// handed to parseEnrollUrl and, on a valid URL, to enrollApi.exchange.  The
-// system camera reaches the same code through the rednose://enroll intent
-// filter and NativeRedNose.getInitialEnrollUrl.
+// QR step of enrollment (red-nose.md 9.1).  react-native-vision-camera v5 has no
+// code scanner on Android (CameraObjectOutput throws "not available on Android"),
+// so this screen does not open the camera.  It still receives a value from the
+// rednose://enroll intent filter via NativeRedNose.getInitialEnrollUrl, hands it
+// to parseEnrollUrl and enrollApi.exchange, and otherwise offers manual entry.
+// Choosing a scanning approach is listed in red-nose.md section 19.
 
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { StyleSheet, Text, View, TouchableOpacity, ActivityIndicator, Alert } from 'react-native';
-import {
-  Camera, useCameraDevice, useCameraPermission, useObjectOutput,
-} from 'react-native-vision-camera';
-import { isScannedCode } from 'react-native-vision-camera';
-import type { ScannedObject } from 'react-native-vision-camera';
 import { parseEnrollUrl } from '../enroll/parseEnrollUrl';
 import { exchange } from '../enroll/enrollApi';
 import { NativeRedNose } from '../native/NativeRedNose';
@@ -24,15 +20,6 @@ export type ScanScreenProps = {
 export function ScanScreen(props: ScanScreenProps) {
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
-  const permission = useCameraPermission();
-  const device = useCameraDevice('back');
-
-  useEffect(() => {
-    if (!permission.hasPermission && permission.canRequestPermission) {
-      void permission.requestPermission();
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [permission.hasPermission, permission.canRequestPermission]);
 
   useEffect(() => {
     let cancelled = false;
@@ -41,7 +28,7 @@ export function ScanScreen(props: ScanScreenProps) {
         if (!cancelled && url) void handleValue(url);
       })
       .catch(() => {
-        // no initial URL; scan or type manually
+        // no initial URL; type the key manually
       });
     return () => { cancelled = true; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -79,35 +66,16 @@ export function ScanScreen(props: ScanScreenProps) {
     }
   };
 
-  const codeOutput = useObjectOutput({
-    types: ['qr'],
-    onObjectsScanned: (objects: ScannedObject[]) => {
-      for (const o of objects) {
-        if (isScannedCode(o) && o.value) {
-          void handleValue(o.value);
-          return;
-        }
-      }
-    },
-  });
-
-  const outputs = useMemo(() => [codeOutput], [codeOutput]);
-  const previewReady = device != null && permission.hasPermission;
-
   return (
     <View style={styles.root}>
-      <View style={styles.previewBox}>
-        {previewReady ? (
-          <Camera
-            style={StyleSheet.absoluteFill}
-            device={device!}
-            isActive={!busy}
-            outputs={outputs}
-          />
-        ) : permission.hasPermission === false ? (
-          <Text style={styles.error}>camera permission missing (re-run provision.sh)</Text>
-        ) : (
+      <View style={styles.body}>
+        {busy ? (
           <ActivityIndicator />
+        ) : (
+          <Text style={styles.info}>
+            QR scanning is not available in this build. Enter the API URL and beacon key by hand,
+            or open an enrollment link on this phone.
+          </Text>
         )}
       </View>
       <View style={styles.footer}>
@@ -125,9 +93,9 @@ export function ScanScreen(props: ScanScreenProps) {
 
 const styles = StyleSheet.create({
   root: { flex: 1, backgroundColor: '#000' },
-  previewBox: { flex: 1, justifyContent: 'center', alignItems: 'center' },
+  body: { flex: 1, justifyContent: 'center', alignItems: 'center', padding: 24 },
   footer: { padding: 16, backgroundColor: '#000' },
-  error: { color: '#fff', textAlign: 'center', padding: 24 },
+  info: { color: '#fff', textAlign: 'center', lineHeight: 22 },
   msg: { color: '#ffb', paddingBottom: 12, textAlign: 'center' },
   button: { padding: 14, borderRadius: 8, backgroundColor: '#222', alignItems: 'center' },
   buttonText: { color: '#fff', fontWeight: '600' },

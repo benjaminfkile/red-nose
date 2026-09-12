@@ -234,7 +234,7 @@ export type ServiceState = {
 
 ### 5.1 Lifecycle
 
-`BeaconService` runs in process `:beacon`. It is a started foreground service of type `location` from the moment an enrollment exists until `clearEnrollment`, and a bound-only service otherwise.
+`BeaconService` runs in process `:beacon`. Every start reaches it through `startForegroundService` (`BootReceiver`, `saveEnrollment`, the `service.sh` watchdog), so `onStartCommand` always calls `startForeground` with type `location`, enrolled or not; without that the platform kills the process a few seconds after each start. Before enrollment the fix source and the loops stay idle and the notification shows the socket state. The UI binds to it in either state.
 
 | Event | Action |
 |---|---|
@@ -427,7 +427,7 @@ One `Json { encodeDefaults = true; explicitNulls = true; ignoreUnknownKeys = tru
 
 ### 9.1 QR path
 
-1. `ScanScreen` uses the `react-native-vision-camera` code scanner for QR only. A scanned value is passed to `parseEnrollUrl`; the system camera app reaches the same code through the `rednose://enroll` intent filter and `getInitialEnrollUrl`.
+1. `ScanScreen` does not open the camera: `react-native-vision-camera` v5 has no code scanner on Android (its object output throws "not available on Android"), and picking a scanning approach is an open decision (section 19). The screen offers manual entry (9.2) and still accepts a value that arrives through the `rednose://enroll` intent filter and `getInitialEnrollUrl`, which it passes to `parseEnrollUrl`.
 2. `parseEnrollUrl` accepts exactly `rednose://enroll?api=<encoded https url>&token=<wet_ token>`; the token must match `^wet_[A-Za-z0-9_-]{43}$`; the API URL must be `https` (or `http` in the dev flavour). Anything else shows "not an enrollment code".
 3. `enrollApi.exchange(api, token)`: `POST {api}/beacons/enroll { token }`. `404 enrollment_token_invalid` shows "this code was already used or expired; ask for a new one". Other failures show the `code` and `requestId` and offer retry.
 4. On `200`, the JS side calls `NativeRedNose.saveEnrollment(response fields)` and navigates to Status. The key exists in JS memory only between steps 3 and 4.
@@ -517,6 +517,8 @@ The phone is rooted and Red-Nose is a persistent system app. There is no device 
 | Stay awake while charging | `settings put global stay_on_while_plugged_in 7` |
 | Launcher | `cmd package set-home-activity com.wmsfo.rednose/.MainActivity`; the `service.sh` script re-asserts it every 15 s (section 5.3) |
 | Bars | none; `MainActivity` hides the status and navigation bars itself with immersive-sticky mode. (`settings put global policy_control` was removed in Android 11 and does nothing on this phone.) |
+| Keyguard | `locksettings set-disabled true`, so a boot lands on the launcher with no swipe |
+| Root for the app | `magisk --sqlite "REPLACE INTO policies ..."` with the app uid and policy 2 (allow), so the checklist's `su -c id` probe never shows a Magisk prompt |
 | No safe boot | `settings put global safe_boot_disallowed 1` |
 | No uninstall | inherent to a `/system/app` package; the user can only disable it, which the launcher lockdown makes unreachable |
 | OTA | blocked by the patched boot image: an OTA fails verification against the modified boot partition and the system stays as flashed. Updater packages are left alone (some are non-disableable on this phone) |
@@ -597,4 +599,4 @@ Every drill is logged in the repository under `docs/soak/<date>.md` with the obs
 
 ## 19. Needs a decision
 
-Nothing at the moment. Add here as it comes up.
+- QR scanning on Android. `react-native-vision-camera` 5.2.3 implements `CameraObjectOutput` (the code scanner) on iOS only, so the QR path in 9.1 cannot work on this phone and `ScanScreen` currently falls back to manual entry. Options: Google Play services code scanner (`play-services-code-scanner`, a system scanner UI behind one native call; the phone keeps GMS), vision-camera 4.x `useCodeScanner` (needs a compatibility check against React Native 0.87), or an ML Kit frame-processor plugin on vision-camera 5. Until decided, enrollment is by key through 9.2.
