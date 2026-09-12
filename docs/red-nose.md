@@ -554,7 +554,7 @@ The beacon phone is a Moto G 5G (2024), Motorola codename `fogo`, model XT2417-1
 
 ## 16. Branch flow and CI
 
-`dev` and `main`. `.github/workflows/android.yml` on every push: JS unit tests, `./gradlew :app:testDevDebugUnitTest`, then `assembleDevRelease` on `dev` and `assembleProdRelease` on `main`, signed. CI then packages the signed APK into the Magisk module (`provisioning/magisk-module/` plus the APK) and uploads two artifacts, `red-nose-<flavour>-<version>-<sha>.apk` and `red-nose-<flavour>-<version>-<sha>.magisk.zip`. No store, no auto-update; the phone is updated by flashing the new module zip and rebooting.
+`dev` and `main`. `.github/workflows/android.yml` on every push: JS unit tests, `./gradlew :app:testDevDebugUnitTest`, then `assembleDevRelease` on `dev` and `assembleProdRelease` on `main`, signed, arm64-v8a only (the beacon phone's ABI, section 14.4; other ABIs build locally only). CI then packages the signed APK into the Magisk module (`provisioning/magisk-module/` plus the APK) and uploads two artifacts, `red-nose-<flavour>-<version>-<sha>.apk` and `red-nose-<flavour>-<version>-<sha>.magisk.zip`. No store, no auto-update; the phone is updated by flashing the new module zip and rebooting.
 
 ---
 
