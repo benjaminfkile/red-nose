@@ -519,6 +519,7 @@ The phone is rooted and Red-Nose is a persistent system app. There is no device 
 | Bars | none; `MainActivity` hides the status and navigation bars itself with immersive-sticky mode. (`settings put global policy_control` was removed in Android 11 and does nothing on this phone.) |
 | Keyguard | `locksettings set-disabled true`, so a boot lands on the launcher with no swipe |
 | Root for the app | `magisk --sqlite "REPLACE INTO policies ..."` with the app uid and policy 2 (allow), so the checklist's `su -c id` probe never shows a Magisk prompt |
+| Immersive hint | `settings put secure immersive_mode_confirmations confirmed`, so the one-time "Viewing full screen" sheet never covers the launcher |
 | No safe boot | `settings put global safe_boot_disallowed 1` |
 | No uninstall | inherent to a `/system/app` package; the user can only disable it, which the launcher lockdown makes unreachable |
 | OTA | blocked by the patched boot image: an OTA fails verification against the modified boot partition and the system stays as flashed. Updater packages are left alone (some are non-disableable on this phone) |
