@@ -532,6 +532,8 @@ What root does not buy and the design accepts: the bootloader stays unlocked (a 
 
 `provisioning/magisk-module/` is a standard Magisk module: `module.prop`, `customize.sh`, a `system/app/RedNose/` tree carrying the APK, and `service.sh`. Red-Nose requests only normal and runtime permissions, so it does not need `/system/priv-app` and carries no privileged-permission allowlist; `android:persistent="true"` is honoured for any system app. Updating Red-Nose is a module reflash and reboot (section 16), never a `pm install`.
 
+Every build carries the same `versionCode` (section 15), and the package manager caches its parse of a system APK, so a reflash on its own keeps the previous manifest and only swaps the code: new activities, services and content providers do not exist until the cache is dropped. `customize.sh` therefore clears `/data/system/package_cache` at install; the next boot re-parses the APK.
+
 ### 14.4 The phone we own
 
 The beacon phone is a Moto G 5G (2024), Motorola codename `fogo`, model XT2417-1, Android 15, kept on stock firmware (debloated, not a custom ROM) so Google Play services, the fused provider, and the modem stay exactly as shipped. `provisioning/DEVICE.md` is the runbook; the parts that cost time to learn:

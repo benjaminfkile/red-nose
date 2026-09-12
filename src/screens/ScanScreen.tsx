@@ -70,7 +70,7 @@ export function ScanScreen(props: ScanScreenProps) {
     } catch (e: unknown) {
       const err = e as { code?: string; message?: string };
       if (err.code === 'scanner_unavailable' || err.code === 'no_activity') {
-        setMessage('scanner unavailable (Play services): enter the code manually');
+        setMessage('scanner unavailable (Play services): enter the code manually' + (err.message ? ' [' + err.message + ']' : ''));
       } else {
         setMessage(err.message ?? 'scanner error');
       }
@@ -79,22 +79,28 @@ export function ScanScreen(props: ScanScreenProps) {
     }
   }, [handleValue]);
 
+  // Runs once on mount. The callbacks are read through refs so a state change
+  // (busy, message) cannot re-run this effect and reopen the scanner in a loop.
+  const handleValueRef = useRef(handleValue);
+  const openScannerRef = useRef(openScanner);
+  handleValueRef.current = handleValue;
+  openScannerRef.current = openScanner;
   useEffect(() => {
     let cancelled = false;
     NativeRedNose.getInitialEnrollUrl()
       .then(url => {
         if (cancelled) return;
         if (url) {
-          void handleValue(url);
+          void handleValueRef.current(url);
         } else {
-          void openScanner();
+          void openScannerRef.current();
         }
       })
       .catch(() => {
-        if (!cancelled) void openScanner();
+        if (!cancelled) void openScannerRef.current();
       });
     return () => { cancelled = true; };
-  }, [handleValue, openScanner]);
+  }, []);
 
   return (
     <View style={styles.root}>
