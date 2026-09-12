@@ -152,8 +152,10 @@ class BeaconService : Service(), SendLoop.State, HeartbeatLoop.State {
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        // Start in the foreground if we already have an enrollment; otherwise stay bound-only.
-        if (enrollment != null && !startedForeground) startForegroundNow()
+        // Every start reaches us through startForegroundService (BootReceiver, saveEnrollment,
+        // the service.sh watchdog), so the foreground contract must be met on every start,
+        // enrolled or not; otherwise the platform kills the process a few seconds later.
+        if (!startedForeground) startForegroundNow()
         return START_STICKY
     }
 
