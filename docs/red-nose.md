@@ -96,12 +96,14 @@ Gradle dependencies that matter, all pinned to exact versions in `app/build.grad
 | `com.microsoft.signalr:signalr` | Hub client (brings OkHttp 4 and RxJava 3) |
 | `com.squareup.okhttp3:okhttp` | REST client, same major as the SignalR client's |
 | `com.google.android.gms:play-services-location` | Fused provider |
+| `com.google.android.gms:play-services-code-scanner` (16.x) | QR scan for enrollment (section 9.1) |
+| `com.google.android.gms:play-services-base` | `ModuleInstallClient` for warming the code-scanner module |
 | `androidx.security:security-crypto` (1.1.0-alpha06) | `EncryptedSharedPreferences` |
 | `org.jetbrains.kotlinx:kotlinx-serialization-json` | Every JSON body the service writes or parses |
 | `org.jetbrains.kotlinx:kotlinx-coroutines-android`, `kotlinx-coroutines-rx3` | Loops; awaiting the SignalR client's RxJava types without blocking |
 | `androidx.core:core-ktx`, `androidx.appcompat:appcompat` | Notifications, permissions |
 
-JavaScript dependencies: `react-native`, `@react-navigation/native` with the native stack, `react-native-vision-camera` (QR scanning through its code scanner), `react-native-safe-area-context`, `react-native-screens`. Nothing else touches native code; every other native capability is reached through `NativeRedNose`.
+JavaScript dependencies: `react-native`, `@react-navigation/native` with the native stack, `react-native-safe-area-context`, `react-native-screens`. QR scanning is the Google Play services code scanner reached through `NativeRedNose.scanQrCode`; the JS side does not link a camera library. Nothing else touches native code; every other native capability is reached through `NativeRedNose`.
 
 ---
 
@@ -177,6 +179,7 @@ export type NativeRedNose = {
   getRecentLog(maxLines: number): Promise<string[]>;
   pickRouteFile(): Promise<string | null>;        // ACTION_OPEN_DOCUMENT, application/json; content:// URI or null
   getInitialEnrollUrl(): Promise<string | null>;  // the rednose:// URL the Activity was launched with, once
+  scanQrCode(): Promise<string | null>;           // Play services code scanner; null on cancel, `scanner_unavailable` on failure
 };
 ```
 
@@ -427,7 +430,7 @@ One `Json { encodeDefaults = true; explicitNulls = true; ignoreUnknownKeys = tru
 
 ### 9.1 QR path
 
-1. `ScanScreen` does not open the camera: `react-native-vision-camera` v5 has no code scanner on Android (its object output throws "not available on Android"), and picking a scanning approach is an open decision (section 19). The screen offers manual entry (9.2) and still accepts a value that arrives through the `rednose://enroll` intent filter and `getInitialEnrollUrl`, which it passes to `parseEnrollUrl`.
+1. `ScanScreen` uses the Google Play services code scanner through `NativeRedNose.scanQrCode`: a full-screen system activity behind one native call (`GmsBarcodeScanning`, QR format only, auto-zoom on). The app never touches the camera and needs no CAMERA permission. The screen opens the scanner automatically once on mount and offers a "scan a code" button to open it again; a resolved string is fed to `parseEnrollUrl`, a cancel resolves to `null` and returns to the screen, and a `scanner_unavailable` failure (the scanner module not yet installed by Play services) shows "scanner unavailable (Play services): enter the code manually" and keeps the manual-entry button visible. `MainActivity.onCreate` warms the module through `ModuleInstallClient` so the first scan does not wait. The `rednose://enroll` intent-filter path through `getInitialEnrollUrl` is unchanged: an incoming URL is parsed directly, skipping the scanner.
 2. `parseEnrollUrl` accepts exactly `rednose://enroll?api=<encoded https url>&token=<wet_ token>`; the token must match `^wet_[A-Za-z0-9_-]{43}$`; the API URL must be `https` (or `http` in the dev flavour). Anything else shows "not an enrollment code".
 3. `enrollApi.exchange(api, token)`: `POST {api}/beacons/enroll { token }`. `404 enrollment_token_invalid` shows "this code was already used or expired; ask for a new one". Other failures show the `code` and `requestId` and offer retry.
 4. On `200`, the JS side calls `NativeRedNose.saveEnrollment(response fields)` and navigates to Status. The key exists in JS memory only between steps 3 and 4.
@@ -485,7 +488,6 @@ Offered only when `replayAllowed` (the enrolled `apiBaseUrl` differs from `REDNO
 | Battery optimization exempt | `isIgnoringBatteryOptimizations` | `dumpsys deviceidle whitelist +pkg` |
 | Location services on | `LocationManager.isLocationEnabled` | `settings put secure location_mode 3` |
 | Google Play services | availability `SUCCESS` | the stock image keeps it (section 14.4) |
-| Camera (scan only) | `CAMERA` granted | `pm grant` |
 | Phone state (signal telemetry) | `READ_PHONE_STATE` granted; optional, telemetry only | `pm grant` |
 | System app | `FLAG_SYSTEM` set | the Magisk module |
 | Root available | `su -c id` answers `uid=0` | Magisk |
@@ -510,7 +512,7 @@ The phone is rooted and Red-Nose is a persistent system app. There is no device 
 
 | Concern | Command (as root) |
 |---|---|
-| Runtime permissions | `pm grant com.wmsfo.rednose <perm>` for `ACCESS_FINE_LOCATION`, `ACCESS_COARSE_LOCATION`, `ACCESS_BACKGROUND_LOCATION`, `POST_NOTIFICATIONS`, `CAMERA`, `READ_PHONE_STATE` |
+| Runtime permissions | `pm grant com.wmsfo.rednose <perm>` for `ACCESS_FINE_LOCATION`, `ACCESS_COARSE_LOCATION`, `ACCESS_BACKGROUND_LOCATION`, `POST_NOTIFICATIONS`, `READ_PHONE_STATE` (no CAMERA: the QR path uses the Play services code scanner, section 9.1) |
 | Location appops | `appops set com.wmsfo.rednose FINE_LOCATION allow` and `appops set com.wmsfo.rednose COARSE_LOCATION allow`, so the grant is not downgraded to coarse or foreground-only |
 | Battery / Doze | `dumpsys deviceidle whitelist +com.wmsfo.rednose` |
 | Location mode | `settings put secure location_mode 3` |
@@ -597,7 +599,8 @@ Every drill is logged in the repository under `docs/soak/<date>.md` with the obs
 - Heartbeats are HTTP only; the socket carries locations only.
 - Enrollment happens after provisioning (section 14.1 order); the in-app scanner works with Red-Nose as the launcher, the system camera is not reachable.
 - The heartbeat telemetry `process` group carries `systemApp` and `rootAvailable` in place of `deviceOwnerMode` (section 8, contracts 4.2).
+- QR scanning is the Google Play services code scanner (`play-services-code-scanner`, a full-screen system activity behind `NativeRedNose.scanQrCode`, section 9.1): the phone keeps GMS, the app never opens the camera, no CAMERA permission is declared or granted, and `MainActivity.onCreate` warms the scanner module through `ModuleInstallClient`. `react-native-vision-camera` was removed with `react-native-nitro-image` and `react-native-nitro-modules`; vision-camera 5 has no Android code scanner, and vision-camera 4 or an ML Kit frame-processor would each mean a camera pipeline the app does not need.
 
 ## 19. Needs a decision
 
-- QR scanning on Android. `react-native-vision-camera` 5.2.3 implements `CameraObjectOutput` (the code scanner) on iOS only, so the QR path in 9.1 cannot work on this phone and `ScanScreen` currently falls back to manual entry. Options: Google Play services code scanner (`play-services-code-scanner`, a system scanner UI behind one native call; the phone keeps GMS), vision-camera 4.x `useCodeScanner` (needs a compatibility check against React Native 0.87), or an ML Kit frame-processor plugin on vision-camera 5. Until decided, enrollment is by key through 9.2.
+Nothing at the moment. Add here as it comes up.
