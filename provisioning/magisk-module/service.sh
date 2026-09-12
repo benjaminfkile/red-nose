@@ -1,5 +1,6 @@
 #!/system/bin/sh
 # Red-Nose survival + launcher re-assert (red-nose.md 5.3, 14.3).
+# Magisk runs a module's service.sh at late_start service; this file must keep that name.
 #
 # Runs as root at late_start_service.  Every 15 s:
 #   1. If pidof shows the :beacon process gone, force it up with
@@ -28,7 +29,7 @@ cmd package set-home-activity "$HOME_COMP" >/dev/null 2>&1
 while true; do
   if ! pidof "$BEACON_PROC" >/dev/null 2>&1; then
     am start-foreground-service -n "$SERVICE_COMP" >/dev/null 2>&1
-    log -t rednose "service.d: :beacon absent, start-foreground-service issued"
+    log -t rednose "service.sh: :beacon absent, start-foreground-service issued"
   fi
 
   CURRENT_HOME="$(cmd package resolve-activity --brief -c android.intent.category.HOME -a android.intent.action.MAIN 2>/dev/null | tail -n1)"
@@ -36,7 +37,7 @@ while true; do
     "$HOME_COMP") : ;;
     *)
       cmd package set-home-activity "$HOME_COMP" >/dev/null 2>&1
-      log -t rednose "service.d: launcher re-asserted (was '$CURRENT_HOME')"
+      log -t rednose "service.sh: launcher re-asserted (was '$CURRENT_HOME')"
       ;;
   esac
 

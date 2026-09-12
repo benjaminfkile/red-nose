@@ -31,8 +31,8 @@ describe('provisioning/magisk-module tree', () => {
     expect(body).toMatch(/system\/app\/RedNose\/RedNose\.apk/);
   });
 
-  test('service.d/rednose.sh parses and implements the 15 s watchdog + launcher re-assert', () => {
-    const script = path.join(MODULE_DIR, 'service.d', 'rednose.sh');
+  test('service.sh parses and implements the 15 s watchdog + launcher re-assert', () => {
+    const script = path.join(MODULE_DIR, 'service.sh');
     parses(script);
     const body = fs.readFileSync(script, 'utf8');
     // Section 5.3: pidof + am start-foreground-service + launcher re-assert on a loop.

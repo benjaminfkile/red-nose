@@ -13,11 +13,11 @@ if [ ! -s "$APK" ]; then
   abort "! aborting: no APK to install"
 fi
 
-# The overlay tree (system/app/RedNose/RedNose.apk, service.d/rednose.sh)
+# The overlay tree (system/app/RedNose/RedNose.apk, service.sh)
 # is placed by Magisk itself.  Just fix ownership and modes.
 set_perm_recursive "$MODPATH/system/app/RedNose" 0 0 0755 0644
-set_perm "$MODPATH/service.d/rednose.sh" 0 0 0755
+set_perm "$MODPATH/service.sh" 0 0 0755
 
 ui_print "- Installed RedNose.apk to /system/app/RedNose/"
-ui_print "- Installed service.d/rednose.sh (root watchdog + launcher re-assert)"
+ui_print "- Installed service.sh (root watchdog + launcher re-assert)"
 ui_print "- Reboot, then run provisioning/provision.sh once."
