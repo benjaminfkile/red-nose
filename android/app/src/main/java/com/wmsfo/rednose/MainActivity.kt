@@ -2,6 +2,9 @@ package com.wmsfo.rednose
 
 import android.content.Intent
 import android.os.Bundle
+import androidx.core.view.WindowCompat
+import androidx.core.view.WindowInsetsCompat
+import androidx.core.view.WindowInsetsControllerCompat
 import com.facebook.react.ReactActivity
 import com.facebook.react.ReactActivityDelegate
 import com.facebook.react.defaults.DefaultNewArchitectureEntryPoint.fabricEnabled
@@ -19,7 +22,23 @@ class MainActivity : ReactActivity() {
   // can return it once to JS on first read (red-nose.md 9.1).
   override fun onCreate(savedInstanceState: Bundle?) {
     super.onCreate(savedInstanceState)
+    hideSystemBars()
     handleIntent(intent)
+  }
+
+  // Immersive-sticky: no status or navigation bar on the kiosk phone (red-nose.md 14.2).
+  // A swipe shows them transiently; regaining focus hides them again.
+  override fun onWindowFocusChanged(hasFocus: Boolean) {
+    super.onWindowFocusChanged(hasFocus)
+    if (hasFocus) hideSystemBars()
+  }
+
+  private fun hideSystemBars() {
+    WindowCompat.setDecorFitsSystemWindows(window, false)
+    WindowInsetsControllerCompat(window, window.decorView).apply {
+      hide(WindowInsetsCompat.Type.systemBars())
+      systemBarsBehavior = WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
+    }
   }
 
   override fun onNewIntent(intent: Intent) {
