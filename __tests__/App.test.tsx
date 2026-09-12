@@ -32,7 +32,7 @@ beforeAll(() => {
       checklist: {
         fineLocation: true, backgroundLocation: true, preciseLocation: true,
         notifications: true, batteryOptimizationExempt: true, locationServicesOn: true,
-        playServices: true, camera: true, phoneState: true, systemApp: true,
+        playServices: true, phoneState: true, systemApp: true,
         rootAvailable: true, launcher: true, serviceRunning: false,
       },
       appVersion: '0.1.0',
@@ -46,6 +46,7 @@ beforeAll(() => {
     getRecentLog: jest.fn(async () => '[]'),
     pickRouteFile: jest.fn(async () => null),
     getInitialEnrollUrl: jest.fn(async () => null),
+    scanQrCode: jest.fn(async () => null),
   };
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   (NativeModules as any).RedNose = stub;

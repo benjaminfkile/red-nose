@@ -43,7 +43,6 @@ class ChecklistProbe(
             batteryOptimizationExempt = batteryOptimizationExempt(),
             locationServicesOn = locationServicesOn(),
             playServices = playServicesAvailable(),
-            camera = granted(Manifest.permission.CAMERA),
             phoneState = granted(Manifest.permission.READ_PHONE_STATE),
             systemApp = systemApp(),
             rootAvailable = rootCache.get() == true,

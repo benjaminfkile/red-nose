@@ -33,7 +33,7 @@ export function makeServiceState(o: Partial<ServiceState> = {}): ServiceState {
     checklist: {
       fineLocation: true, backgroundLocation: true, preciseLocation: true,
       notifications: true, batteryOptimizationExempt: true, locationServicesOn: true,
-      playServices: true, camera: true, phoneState: true, systemApp: true,
+      playServices: true, phoneState: true, systemApp: true,
       rootAvailable: true, launcher: true, serviceRunning: true,
     },
     appVersion: '0.1.0',

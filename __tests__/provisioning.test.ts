@@ -73,11 +73,13 @@ describe('provisioning/provision.sh', () => {
       'ACCESS_COARSE_LOCATION',
       'ACCESS_BACKGROUND_LOCATION',
       'POST_NOTIFICATIONS',
-      'CAMERA',
       'READ_PHONE_STATE',
     ]) {
       expect(body).toContain(perm);
     }
+    // CAMERA is not in the list (red-nose.md 9.1, 14.2): the app does not
+    // declare it and pm grant would fail.
+    expect(body).not.toContain('CAMERA');
     expect(body).toMatch(/pm grant/);
     // Location appops (14.2 row 2).
     expect(body).toMatch(/appops set/);
