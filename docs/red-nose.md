@@ -14,7 +14,7 @@ Red-Nose is the WMSFO v2 beacon app: a React Native user interface over a native
 | Native | Kotlin. One foreground service in its own process, one React Native native module in the app process, one boot receiver. Process survival is the platform's, not a userspace watchdog's (section 5.3). |
 | Application id | `com.wmsfo.rednose` in both flavours (section 15). |
 | Processes | `com.wmsfo.rednose` (React Native UI) and `com.wmsfo.rednose:beacon` (the service). The service process never loads React Native. |
-| Distribution | Packaged as a Magisk module (the signed APK plus a `service.d` boot script); flashed on a rooted phone, one signing key, no store. |
+| Distribution | Packaged as a Magisk module (the signed APK plus a `service.sh` boot script); flashed on a rooted phone, one signing key, no store. |
 | Roles | `beacon` and `admin`, from the enrolled key. `admin` unlocks debug mode. |
 | Storage | Enrollment fields in Keystore-backed `EncryptedSharedPreferences`, a ring-buffer log file, and two per-boot counters. No fixes are ever stored. |
 
@@ -83,7 +83,7 @@ red-nose/
     app/src/main/res/xml/network_security_config.xml       # prod: cleartext off
     app/src/dev/res/xml/network_security_config.xml        # dev: cleartext allowed
   provisioning/
-    magisk-module/                     # module.prop, customize.sh, service.d/rednose.sh (root watchdog + launcher re-assert), system/app/RedNose/ tree
+    magisk-module/                     # module.prop, customize.sh, service.sh (root watchdog + launcher re-assert), system/app/RedNose/ tree
     provision.sh                       # adb+root: pm grant, appops, deviceidle whitelist, settings, launcher, safe boot off
     DEVICE.md                          # the runbook for the phone we own (section 14.4)
   .github/workflows/android.yml
@@ -118,7 +118,7 @@ JavaScript dependencies: `react-native`, `@react-navigation/native` with the nat
 | Telemetry collection | Service | Section 8 |
 | Log ring buffer and log upload | Service | JS asks for it; the service holds the key and the file |
 | Replay | Service | JS supplies the source and rate; the service plays it |
-| Process survival | Platform and root | Persistent system app (low-memory-exempt, restarted by the platform), `START_STICKY`, the `:beacon` boot receiver, and a Magisk `service.d` root script (section 5.3) |
+| Process survival | Platform and root | Persistent system app (low-memory-exempt, restarted by the platform), `START_STICKY`, the `:beacon` boot receiver, and a Magisk `service.sh` root script (section 5.3) |
 | Permissions, Doze allowlist, location mode, launcher, safe boot, OTA | Root provisioning | Granted and set from the shell at provisioning (section 14). The app requests nothing at runtime and opens no settings screen; the checklist only reports |
 | Hidden bars | The app | `MainActivity` runs immersive-sticky so the status and navigation bars stay hidden while it is in front |
 
@@ -241,7 +241,7 @@ export type ServiceState = {
 | `saveEnrollment` | Store fields, `startForegroundService`, `startForeground(id, notification, FOREGROUND_SERVICE_TYPE_LOCATION)`, start the fix source and the three loops |
 | `BOOT_COMPLETED` | `BootReceiver` (in `:beacon`) reads the store; enrollment present: `startForegroundService`. Background location is granted at provisioning, so the location foreground service is allowed to start from boot; the reboot drill (section 17) proves it on the chosen phone, and the checklist (section 13) shows the permission state so a missing grant is visible, never guessed around |
 | `onTaskRemoved` | Ignored; the service is not tied to the task |
-| `onDestroy` | Only after `clearEnrollment` or a system kill. `START_STICKY` asks the system to recreate it; as a persistent system app the platform also restarts the process, and the `service.d` root script (5.3) covers anything the platform does not |
+| `onDestroy` | Only after `clearEnrollment` or a system kill. `START_STICKY` asks the system to recreate it; as a persistent system app the platform also restarts the process, and the `service.sh` root script (5.3) covers anything the platform does not |
 | `onLowMemory`, `onTrimMemory` | Logged with the level; nothing is released (the service holds one fix and one telemetry value) |
 
 Notification: channel `beacon`, importance low, ongoing, not dismissible, text is the socket state and the age of the last delivered fix, updated at most once per 5 s. It is the only visible surface on a locked device.
@@ -261,7 +261,7 @@ Survival is the platform's job and root's, not a userspace watchdog's. Four laye
 | Persistent system app | `android:persistent="true"` on a `/system/app` package: the app's process is exempt from low-memory kills and the platform restarts it immediately if it dies |
 | `START_STICKY` | the foreground service asks the system to recreate it after a kill |
 | `BootReceiver` (`:beacon`) | at boot the receiver reads the store and starts the foreground service (section 5.1) |
-| Magisk `service.d/rednose.sh` | a root boot script that starts the service and, every 15 s, force-starts it (`am start-foreground-service`) if `pidof` shows the `:beacon` process gone, and re-asserts Red-Nose as the launcher if the HOME activity has changed; running as root outside the app, it is the guarantee the other three layers are measured against |
+| Magisk `service.sh` | a root boot script that starts the service and, every 15 s, force-starts it (`am start-foreground-service`) if `pidof` shows the `:beacon` process gone, and re-asserts Red-Nose as the launcher if the HOME activity has changed; running as root outside the app, it is the guarantee the other three layers are measured against |
 
 There is no `WorkManager` worker and no exact alarm; the persistent process plus the root script replace both. Whether the platform's persistent treatment extends to the secondary `:beacon` process or only to the main process is verified in the soak (section 17, the `kill -9` drill); either answer is acceptable because the root script restarts the process within 15 s regardless. `BeaconService.isRunning` (a static flag set in `onCreate`, cleared in `onDestroy`) is what the checklist reads.
 
@@ -489,7 +489,7 @@ Offered only when `replayAllowed` (the enrolled `apiBaseUrl` differs from `REDNO
 | Phone state (signal telemetry) | `READ_PHONE_STATE` granted; optional, telemetry only | `pm grant` |
 | System app | `FLAG_SYSTEM` set | the Magisk module |
 | Root available | `su -c id` answers `uid=0` | Magisk |
-| Launcher | `resolveActivity(HOME)` is `MainActivity` | `cmd package set-home-activity`, re-asserted by `service.d` |
+| Launcher | `resolveActivity(HOME)` is `MainActivity` | `cmd package set-home-activity`, re-asserted by `service.sh` |
 | Service running | `BeaconService.isRunning` | automatic |
 
 ---
@@ -502,7 +502,7 @@ The phone is rooted and Red-Nose is a persistent system app. There is no device 
 
 1. Factory reset; skip account setup; enable developer options and USB debugging. No Google account is ever added.
 2. Root with Magisk: unlock the bootloader, patch the boot image, flash it, confirm `adb shell su -c id` answers `uid=0(root)`. The device-specific steps are in 14.4 and `provisioning/DEVICE.md`.
-3. Flash the Red-Nose Magisk module (`provisioning/magisk-module/`, built in CI, section 16). It places the signed APK at `/system/app/RedNose/RedNose.apk` and `service.d/rednose.sh` (section 5.3). Reboot.
+3. Flash the Red-Nose Magisk module (`provisioning/magisk-module/`, built in CI, section 16). It places the signed APK at `/system/app/RedNose/RedNose.apk` and `service.sh` (section 5.3). Reboot.
 4. Confirm the install: `adb shell dumpsys package com.wmsfo.rednose` shows `FLAG_SYSTEM` and `persistent=true`.
 5. Run `provision.sh` (14.2), then enroll (section 9).
 
@@ -515,7 +515,7 @@ The phone is rooted and Red-Nose is a persistent system app. There is no device 
 | Battery / Doze | `dumpsys deviceidle whitelist +com.wmsfo.rednose` |
 | Location mode | `settings put secure location_mode 3` |
 | Stay awake while charging | `settings put global stay_on_while_plugged_in 7` |
-| Launcher | `cmd package set-home-activity com.wmsfo.rednose/.MainActivity`; the `service.d` script re-asserts it every 15 s (section 5.3) |
+| Launcher | `cmd package set-home-activity com.wmsfo.rednose/.MainActivity`; the `service.sh` script re-asserts it every 15 s (section 5.3) |
 | Bars | none; `MainActivity` hides the status and navigation bars itself with immersive-sticky mode. (`settings put global policy_control` was removed in Android 11 and does nothing on this phone.) |
 | No safe boot | `settings put global safe_boot_disallowed 1` |
 | No uninstall | inherent to a `/system/app` package; the user can only disable it, which the launcher lockdown makes unreachable |
@@ -525,7 +525,7 @@ What root does not buy and the design accepts: the bootloader stays unlocked (a 
 
 ### 14.3 The Magisk module
 
-`provisioning/magisk-module/` is a standard Magisk module: `module.prop`, `customize.sh`, a `system/app/RedNose/` tree carrying the APK, and `service.d/rednose.sh`. Red-Nose requests only normal and runtime permissions, so it does not need `/system/priv-app` and carries no privileged-permission allowlist; `android:persistent="true"` is honoured for any system app. Updating Red-Nose is a module reflash and reboot (section 16), never a `pm install`.
+`provisioning/magisk-module/` is a standard Magisk module: `module.prop`, `customize.sh`, a `system/app/RedNose/` tree carrying the APK, and `service.sh`. Red-Nose requests only normal and runtime permissions, so it does not need `/system/priv-app` and carries no privileged-permission allowlist; `android:persistent="true"` is honoured for any system app. Updating Red-Nose is a module reflash and reboot (section 16), never a `pm install`.
 
 ### 14.4 The phone we own
 
@@ -567,8 +567,8 @@ Runs on the real device against the dev API for at least 30 days before December
 | Unattended, charging | heartbeat gap never exceeds 60 s over the whole soak; `serviceRestartCount` stays 0 between reboots |
 | Reboot | first heartbeat within 120 s of boot without touching the phone |
 | Airplane mode 10 min, then off | first delivered fix within 15 s of the network returning |
-| Kill from recents, `adb shell am force-stop` | service back within 60 s (persistent-app restart, or the `service.d` root script) |
-| `kill -9` of the `:beacon` pid only, as root | service back within 15 s; the log records whether the platform or the `service.d` script restarted it (section 5.3) |
+| Kill from recents, `adb shell am force-stop` | service back within 60 s (persistent-app restart, or the `service.sh` root script) |
+| `kill -9` of the `:beacon` pid only, as root | service back within 15 s; the log records whether the platform or the `service.sh` script restarted it (section 5.3) |
 | Press HOME, open recents, swipe the app away | Red-Nose is back in front within 15 s (launcher re-assert) |
 | Cellular only, driving 1 h at highway speed | fixes delivered at 1 Hz with gaps only where the carrier has none; socket reconnects logged, HTTP fallback covering them |
 | Battery to 10 percent unplugged, then charged | no change in behaviour; battery telemetry correct |
@@ -583,7 +583,7 @@ Every drill is logged in the repository under `docs/soak/<date>.md` with the obs
 - The service runs in its own process and communicates with the UI over AIDL only; the UI never holds the key after enrollment.
 - The phone is rooted (Magisk) and Red-Nose is a persistent system app under `/system/app`; that is the baseline for process survival, permission granting, and launcher lockdown, not a post-soak fallback. It requests no privileged permission, so there is no `/system/priv-app` install and no allowlist.
 - Device owner mode and DevicePolicyManager are not used; the launcher, permissions, settings, safe boot, and OTA blocking are done from the shell with root at provisioning (section 14).
-- Process survival is the platform's plus root's: the persistent system app and `START_STICKY`, with the Magisk `service.d` root script as the guarantee; there is no WorkManager worker and no exact alarm.
+- Process survival is the platform's plus root's: the persistent system app and `START_STICKY`, with the Magisk `service.sh` root script as the guarantee; there is no WorkManager worker and no exact alarm.
 - The app never requests a permission and never opens a settings screen; provisioning grants everything and the checklist only reports.
 - Kiosk is "Red-Nose is the launcher, re-asserted by root, hiding its own bars"; screen pinning and lock task are not used. The bootloader stays unlocked and a factory reset from Settings stays possible; both are accepted.
 - OTA is blocked by the patched boot image, not by disabling updater packages (some cannot be disabled).
