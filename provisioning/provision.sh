@@ -106,7 +106,6 @@ for perm in \
   ACCESS_COARSE_LOCATION \
   ACCESS_BACKGROUND_LOCATION \
   POST_NOTIFICATIONS \
-  CAMERA \
   READ_PHONE_STATE; do
   adb_su "pm grant $PKG android.permission.$perm" >/dev/null 2>&1 || true
   actual="$(adb_su_out "dumpsys package $PKG | grep 'android.permission.$perm: granted='")"

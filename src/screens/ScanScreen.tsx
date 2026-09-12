@@ -1,12 +1,13 @@
-// QR step of enrollment (red-nose.md 9.1).  react-native-vision-camera v5 has no
-// code scanner on Android (CameraObjectOutput throws "not available on Android"),
-// so this screen does not open the camera.  It still receives a value from the
-// rednose://enroll intent filter via NativeRedNose.getInitialEnrollUrl, hands it
-// to parseEnrollUrl and enrollApi.exchange, and otherwise offers manual entry.
-// Choosing a scanning approach is listed in red-nose.md section 19.
+// QR step of enrollment (red-nose.md 9.1).  The Google Play services code
+// scanner (a full-screen system activity behind NativeRedNose.scanQrCode)
+// reads the QR; the app never opens the camera and needs no CAMERA
+// permission.  A resolved string is fed to handleValue; a cancel resolves
+// with null and returns to this screen; a scanner_unavailable rejection
+// falls back to manual entry.  The rednose://enroll intent path through
+// getInitialEnrollUrl is unchanged.
 
-import React, { useEffect, useState } from 'react';
-import { StyleSheet, Text, View, TouchableOpacity, ActivityIndicator, Alert } from 'react-native';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
+import { StyleSheet, Text, View, TouchableOpacity, ActivityIndicator } from 'react-native';
 import { parseEnrollUrl } from '../enroll/parseEnrollUrl';
 import { exchange } from '../enroll/enrollApi';
 import { NativeRedNose } from '../native/NativeRedNose';
@@ -20,22 +21,12 @@ export type ScanScreenProps = {
 export function ScanScreen(props: ScanScreenProps) {
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
+  const scanOpenRef = useRef(false);
+  const busyRef = useRef(false);
 
-  useEffect(() => {
-    let cancelled = false;
-    NativeRedNose.getInitialEnrollUrl()
-      .then(url => {
-        if (!cancelled && url) void handleValue(url);
-      })
-      .catch(() => {
-        // no initial URL; type the key manually
-      });
-    return () => { cancelled = true; };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
-  const handleValue = async (value: string) => {
-    if (busy) return;
+  const handleValue = useCallback(async (value: string) => {
+    if (busyRef.current) return;
+    busyRef.current = true;
     setBusy(true);
     setMessage(null);
     try {
@@ -62,9 +53,48 @@ export function ScanScreen(props: ScanScreenProps) {
         setMessage(`${err.code ?? 'error'}${suffix}`);
       }
     } finally {
+      busyRef.current = false;
       setBusy(false);
     }
-  };
+  }, [props]);
+
+  const openScanner = useCallback(async () => {
+    if (scanOpenRef.current || busyRef.current) return;
+    scanOpenRef.current = true;
+    setMessage(null);
+    try {
+      const value = await NativeRedNose.scanQrCode();
+      if (value != null) {
+        await handleValue(value);
+      }
+    } catch (e: unknown) {
+      const err = e as { code?: string; message?: string };
+      if (err.code === 'scanner_unavailable' || err.code === 'no_activity') {
+        setMessage('scanner unavailable (Play services): enter the code manually');
+      } else {
+        setMessage(err.message ?? 'scanner error');
+      }
+    } finally {
+      scanOpenRef.current = false;
+    }
+  }, [handleValue]);
+
+  useEffect(() => {
+    let cancelled = false;
+    NativeRedNose.getInitialEnrollUrl()
+      .then(url => {
+        if (cancelled) return;
+        if (url) {
+          void handleValue(url);
+        } else {
+          void openScanner();
+        }
+      })
+      .catch(() => {
+        if (!cancelled) void openScanner();
+      });
+    return () => { cancelled = true; };
+  }, [handleValue, openScanner]);
 
   return (
     <View style={styles.root}>
@@ -73,8 +103,7 @@ export function ScanScreen(props: ScanScreenProps) {
           <ActivityIndicator />
         ) : (
           <Text style={styles.info}>
-            QR scanning is not available in this build. Enter the API URL and beacon key by hand,
-            or open an enrollment link on this phone.
+            Point the phone at the enrollment QR code.
           </Text>
         )}
       </View>
@@ -82,7 +111,13 @@ export function ScanScreen(props: ScanScreenProps) {
         {message ? <Text style={styles.msg}>{message}</Text> : null}
         <TouchableOpacity
           style={styles.button}
-          onPress={() => (busy ? Alert.alert('busy') : props.onManual())}
+          onPress={() => { void openScanner(); }}
+        >
+          <Text style={styles.buttonText}>scan a code</Text>
+        </TouchableOpacity>
+        <TouchableOpacity
+          style={[styles.button, styles.buttonSecondary]}
+          onPress={() => { if (!busyRef.current) props.onManual(); }}
         >
           <Text style={styles.buttonText}>enter manually</Text>
         </TouchableOpacity>
@@ -97,6 +132,7 @@ const styles = StyleSheet.create({
   footer: { padding: 16, backgroundColor: '#000' },
   info: { color: '#fff', textAlign: 'center', lineHeight: 22 },
   msg: { color: '#ffb', paddingBottom: 12, textAlign: 'center' },
-  button: { padding: 14, borderRadius: 8, backgroundColor: '#222', alignItems: 'center' },
+  button: { padding: 14, borderRadius: 8, backgroundColor: '#222', alignItems: 'center', marginTop: 8 },
+  buttonSecondary: { backgroundColor: '#1a1a1a' },
   buttonText: { color: '#fff', fontWeight: '600' },
 });

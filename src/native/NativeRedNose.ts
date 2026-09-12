@@ -98,7 +98,6 @@ export type Checklist = {
   batteryOptimizationExempt: boolean;
   locationServicesOn: boolean;
   playServices: boolean;
-  camera: boolean;
   phoneState: boolean;
   systemApp: boolean;
   rootAvailable: boolean;
@@ -149,6 +148,7 @@ type RawNativeRedNose = {
   getRecentLog(maxLines: number): Promise<string>;
   pickRouteFile(): Promise<string | null>;
   getInitialEnrollUrl(): Promise<string | null>;
+  scanQrCode(): Promise<string | null>;
 };
 
 // Resolve NativeModules.RedNose on each call so tests can install a stub in
@@ -189,6 +189,9 @@ export const NativeRedNose = {
   },
   getInitialEnrollUrl(): Promise<string | null> {
     return raw().getInitialEnrollUrl();
+  },
+  scanQrCode(): Promise<string | null> {
+    return raw().scanQrCode();
   },
 };
 

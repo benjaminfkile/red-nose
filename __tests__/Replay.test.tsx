@@ -22,6 +22,7 @@ const stub = {
   getRecentLog: jest.fn(async () => '[]'),
   pickRouteFile: jest.fn(async () => null as string | null),
   getInitialEnrollUrl: jest.fn(async () => null),
+  scanQrCode: jest.fn(async () => null as string | null),
 };
 
 beforeAll(() => {

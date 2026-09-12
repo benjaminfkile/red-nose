@@ -8,9 +8,6 @@
     <!-- Notifications for the ongoing service notification -->
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
 
-    <!-- Camera for the in-app QR scanner (scan only) -->
-    <uses-permission android:name="android.permission.CAMERA" />
-
     <!-- Signal telemetry (READ_PHONE_STATE is optional; red-nose.md 18) -->
     <uses-permission android:name="android.permission.READ_PHONE_STATE" />
 

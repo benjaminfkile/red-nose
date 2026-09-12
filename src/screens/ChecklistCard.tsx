@@ -20,7 +20,6 @@ const ROWS: Row[] = [
   { key: 'batteryOptimizationExempt', label: 'Battery optimization exempt' },
   { key: 'locationServicesOn', label: 'Location services on' },
   { key: 'playServices', label: 'Google Play services' },
-  { key: 'camera', label: 'Camera' },
   { key: 'phoneState', label: 'Phone state' },
   { key: 'systemApp', label: 'System app' },
   { key: 'rootAvailable', label: 'Root available' },

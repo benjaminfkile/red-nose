@@ -50,7 +50,6 @@ data class Checklist(
     val batteryOptimizationExempt: Boolean = false,
     val locationServicesOn: Boolean = false,
     val playServices: Boolean = false,
-    val camera: Boolean = false,
     val phoneState: Boolean = false,
     val systemApp: Boolean = false,
     val rootAvailable: Boolean = false,

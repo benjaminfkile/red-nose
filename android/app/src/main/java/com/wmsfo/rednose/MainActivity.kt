@@ -2,6 +2,7 @@ package com.wmsfo.rednose
 
 import android.content.Intent
 import android.os.Bundle
+import android.util.Log
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
@@ -9,6 +10,9 @@ import com.facebook.react.ReactActivity
 import com.facebook.react.ReactActivityDelegate
 import com.facebook.react.defaults.DefaultNewArchitectureEntryPoint.fabricEnabled
 import com.facebook.react.defaults.DefaultReactActivityDelegate
+import com.google.android.gms.common.moduleinstall.ModuleInstall
+import com.google.android.gms.common.moduleinstall.ModuleInstallRequest
+import com.google.mlkit.vision.codescanner.GmsBarcodeScanning
 import com.wmsfo.rednose.bridge.RedNoseModule
 
 class MainActivity : ReactActivity() {
@@ -23,7 +27,20 @@ class MainActivity : ReactActivity() {
   override fun onCreate(savedInstanceState: Bundle?) {
     super.onCreate(savedInstanceState)
     hideSystemBars()
+    warmCodeScannerModule()
     handleIntent(intent)
+  }
+
+  // Ask Play services to install the code-scanner module now so the first
+  // scanQrCode() call does not wait (red-nose.md 9.1).
+  private fun warmCodeScannerModule() {
+    val client = ModuleInstall.getClient(this)
+    val request = ModuleInstallRequest.newBuilder()
+      .addApi(GmsBarcodeScanning.getClient(this))
+      .build()
+    client.installModules(request)
+      .addOnSuccessListener { Log.i("rednose", "code scanner module warm-up requested") }
+      .addOnFailureListener { e -> Log.w("rednose", "code scanner module warm-up failed: ${e.message}") }
   }
 
   // Immersive-sticky: no status or navigation bar on the kiosk phone (red-nose.md 14.2).
