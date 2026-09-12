@@ -1,9 +1,4 @@
-      - name: Free runner disk space
-        # Only on a GitHub-hosted runner (about 14 GB free, which the native build
-        # exhausts): drop toolchains this workflow never uses. Never on a self-hosted
-        # box, where these directories belong to the machine.
-        if: runner.environment == 'github-hosted'
-        run: |# docs/red-nose.md section 16.
+# docs/red-nose.md section 16.
 name: android
 
 on:
@@ -18,8 +13,10 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Free runner disk space
-        # The hosted Ubuntu runner has about 14 GB free, which the native build
-        # exhausts. Drop toolchains this workflow never uses (not the Android SDK).
+        # Only on a GitHub-hosted runner (about 14 GB free, which the native build
+        # exhausts): drop toolchains this workflow never uses. Never on a self-hosted
+        # box, where these directories belong to the machine.
+        if: runner.environment == 'github-hosted'
         run: |
           df -h / | tail -1
           sudo rm -rf /usr/share/dotnet /usr/local/.ghcup /opt/ghc /usr/local/share/boost \
