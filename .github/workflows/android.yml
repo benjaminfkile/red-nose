@@ -1,4 +1,9 @@
-# docs/red-nose.md section 16.
+      - name: Free runner disk space
+        # Only on a GitHub-hosted runner (about 14 GB free, which the native build
+        # exhausts): drop toolchains this workflow never uses. Never on a self-hosted
+        # box, where these directories belong to the machine.
+        if: runner.environment == 'github-hosted'
+        run: |# docs/red-nose.md section 16.
 name: android
 
 on:
@@ -8,7 +13,8 @@ on:
 
 jobs:
   build:
-    runs-on: ubuntu-latest
+    # The self-hosted runner on Nimbus (labels self-hosted,linux,x64,nimbus); see docs/red-nose.md 16.
+    runs-on: [self-hosted, linux, x64]
     steps:
       - uses: actions/checkout@v4
       - name: Free runner disk space
