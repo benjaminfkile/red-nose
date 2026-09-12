@@ -3,7 +3,6 @@ package com.wmsfo.rednose.transport
 import com.microsoft.signalr.HubConnection
 import com.wmsfo.rednose.location.LatestFix
 import com.wmsfo.rednose.location.toPayload
-import com.wmsfo.rednose.log.BeaconJson
 import com.wmsfo.rednose.log.RingLog
 import com.wmsfo.rednose.store.Enrollment
 import kotlinx.coroutines.CoroutineScope
@@ -15,7 +14,6 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.rx3.await
 import kotlinx.coroutines.withTimeout
 import kotlinx.coroutines.withTimeoutOrNull
-import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
@@ -88,10 +86,12 @@ class SocketLoop(
 
     override suspend fun sendToChannel(channel: String, fix: LatestFix): Boolean {
         val conn = connection ?: return false
-        val payload = BeaconJson.encodeToString(fix.toPayload())
+        // The payload goes as an object, serialized by the client into the invocation
+        // arguments, so the gateway forwards `data` as the location body itself. A
+        // pre-encoded string would arrive as a JSON string and fail the API's validation.
         return try {
             withTimeout(10_000) {
-                conn.invoke("SendToChannel", channel, "location", payload).await()
+                conn.invoke("SendToChannel", channel, "location", fix.toPayload()).await()
             }
             true
         } catch (_: Exception) {
