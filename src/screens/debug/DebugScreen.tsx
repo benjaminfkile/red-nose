@@ -1,6 +1,6 @@
-// Debug shell (red-nose.md 10): the seven debug screens, gated at the caller
-// on `enrollment.role === "admin"`.  Reads ServiceState from the parent (which
-// already subscribes at 1 Hz) and the log stream through `onLog`.
+// Debug shell (red-nose.md 10): the seven debug screens.  Debug is always
+// available once enrolled.  Reads ServiceState from the parent (which already
+// subscribes at 1 Hz) and the log stream through `onLog`.
 
 import React, { useEffect, useState } from 'react';
 import { ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';

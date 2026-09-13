@@ -15,7 +15,7 @@ Red-Nose is the WMSFO v2 beacon app: a React Native user interface over a native
 | Application id | `com.wmsfo.rednose` in both flavours (section 15). |
 | Processes | `com.wmsfo.rednose` (React Native UI) and `com.wmsfo.rednose:beacon` (the service). The service process never loads React Native. |
 | Distribution | Packaged as a Magisk module (the signed APK plus a `service.sh` boot script); flashed on a rooted phone, one signing key, no store. |
-| Roles | `beacon` and `admin`, from the enrolled key. `admin` unlocks debug mode. |
+| Roles | None. The API knows Red-Nose only as a key; debug mode is always available to whoever holds the phone. |
 | Storage | Enrollment fields in Keystore-backed `EncryptedSharedPreferences`, a ring-buffer log file, and two per-boot counters. No fixes are ever stored. |
 
 ---
@@ -194,7 +194,7 @@ Binding: `bindService(Intent(context, BeaconService::class.java), conn, BIND_AUT
 ```ts
 export type Enrollment = {
   apiBaseUrl: string; hubUrl: string; ingestChannel: string;
-  beaconId: number; name: string; role: "beacon" | "admin"; key: string;
+  beaconId: number; name: string; key: string;
 };
 
 export type LatestFix = {
@@ -207,7 +207,7 @@ export type ServiceState = {
   serviceRunning: boolean;                 // the foreground service is started
   serviceStartedAt: string | null;
   enrollment: {
-    beaconId: number; name: string; role: "beacon" | "admin"; keyPrefix: string;   // first 12 characters of the key
+    beaconId: number; name: string; keyPrefix: string;   // first 12 characters of the key
     apiBaseUrl: string; hubUrl: string; ingestChannel: string; gpsOnlyFallback: boolean;
   } | null;
   socketState: "connected" | "connecting" | "reconnecting" | "disconnected";
@@ -221,7 +221,7 @@ export type ServiceState = {
   lastDeliveredSeqLocal: number | null;
   lastReceiptLatencyMs: number | null;
   lastSendError: string | null;
-  telemetry: Heartbeat;                    // the heartbeat body as it would be sent now (section 8)
+  telemetry: Heartbeat;                    // the heartbeat body as it would be sent now (section 8): sentAt, health, debug
   replay: { running: boolean; source: string; index: number; total: number; ratePerSecond: number } | null;
   replayAllowed: boolean;                  // enrollment.apiBaseUrl !== REDNOSE_PROD_API_BASE_URL
   checklist: Checklist;                    // section 13
@@ -322,7 +322,7 @@ The service holds: `socketState` (the four contract values), `attempt` (int, sha
 
 ### 7.4 Socket loop
 
-`SocketLoop` implements contracts 9.2 with the SignalR Java client:
+`SocketLoop` implements contracts 9.2 with the SignalR Java client. Two rules of the Java client that the loop depends on: a void hub method (`JoinPrivateChannel`, `SendToChannel`) is invoked through the `Completable invoke(String, Object...)` overload, because the `Single<T>` overload cannot complete on a null result and would time out every call; and the location payload is passed as an object (`LocationPayload`), which the client serializes into the invocation arguments, so the gateway forwards `data` as the location body itself rather than as a JSON string.
 
 ```kotlin
 while (isActive) {
@@ -390,11 +390,20 @@ One `Json { encodeDefaults = true; explicitNulls = true; ignoreUnknownKeys = tru
 
 ## 8. Telemetry and the heartbeat body
 
-`TelemetryCollector` builds the contracts 4.2 body on every heartbeat tick from four probes; every value is nullable and a probe that fails leaves its group's fields null and logs once per minute.
+`TelemetryCollector` builds the contracts 4.2 body on every heartbeat tick from four probes:
 
-| Group and field | Android source |
+```json
+{
+  "sentAt": "...",
+  "health": { "batteryPercent": 87, "lastFixAgeS": 1, "socketState": "connected" },
+  "debug": { "power": {...}, "radio": {...}, "gps": {...}, "transport": {...}, "process": {...}, "identity": {...} }
+}
+```
+
+`health` is the API's typed core: `batteryPercent` from `BatteryManager.BATTERY_PROPERTY_CAPACITY`, `lastFixAgeS` from `latestFix` (age from `elapsedRealtime` since the fix), and `socketState` from `TransportStats.socketState`. `debug` is everything else the phone knows, the six groups below verbatim (those three fields are not duplicated in the debug groups); the admin panel shows it as a JSON tree and never reads it, so a new leaf here is a one-line change in this file and nowhere else. Every value is nullable and a probe that fails leaves its group's fields null and logs once per minute.
+
+| Group and field (inside `debug`) | Android source |
 |---|---|
-| `power.batteryPercent` | `BatteryManager.BATTERY_PROPERTY_CAPACITY` |
 | `power.charging` | `BatteryManager.isCharging` |
 | `power.batteryTempC` | `ACTION_BATTERY_CHANGED` extra `EXTRA_TEMPERATURE` / 10 |
 | `power.thermalStatus` | `PowerManager.currentThermalStatus` mapped to the contract names |
@@ -404,10 +413,10 @@ One `Json { encodeDefaults = true; explicitNulls = true; ignoreUnknownKeys = tru
 | `radio.connected` | default network has `NET_CAPABILITY_VALIDATED` |
 | `gps.provider` | `fused`, `gps`, or `replay` |
 | `gps.satellitesUsed`, `gps.satellitesInView` | `GnssStats` |
-| `gps.lastFixAccuracyM`, `gps.lastFixAgeS` | from `latestFix`; age from `elapsedRealtime` since the fix |
+| `gps.lastFixAccuracyM` | from `latestFix` |
 | `gps.fixesLastMinute` | ring of fix timestamps over the last 60 s |
 | `gps.permission.foreground`, `.background`, `.precise` | `checkSelfPermission` for `ACCESS_FINE_LOCATION`, `ACCESS_BACKGROUND_LOCATION`; precise is fine granted (as opposed to coarse only) |
-| `transport.*` | `TransportStats`: socket state, reconnect count since service start, `httpFallbackSeconds`, `lastReceiptLatencyMs`, `sendsFailedSinceBoot` |
+| `transport.reconnectCount`, `transport.httpFallbackSeconds`, `transport.lastReceiptLatencyMs`, `transport.sendsFailedSinceBoot` | `TransportStats` |
 | `process.deviceUptimeS` | `SystemClock.elapsedRealtime() / 1000` |
 | `process.serviceUptimeS` | since `onCreate` |
 | `process.serviceRestartCount` | `BootCounters` |
@@ -441,13 +450,13 @@ One `Json { encodeDefaults = true; explicitNulls = true; ignoreUnknownKeys = tru
 
 ### 9.3 Storage
 
-`SecureStore` wraps `EncryptedSharedPreferences` (`MasterKey` with `AES256_GCM`, keyset in the Android Keystore) in the `:beacon` process only. Keys: `apiBaseUrl`, `hubUrl`, `ingestChannel`, `beaconId`, `name`, `role`, `key`, `gpsOnlyFallback`. `clearEnrollment` wipes them and stops the service. A device with a compromised Keystore is a device we no longer own; there is no second line of defence on the phone, revocation is the answer.
+`SecureStore` wraps `EncryptedSharedPreferences` (`MasterKey` with `AES256_GCM`, keyset in the Android Keystore) in the `:beacon` process only. Keys: `apiBaseUrl`, `hubUrl`, `ingestChannel`, `beaconId`, `name`, `key`, `gpsOnlyFallback`. `clearEnrollment` wipes them and stops the service. A device with a compromised Keystore is a device we no longer own; there is no second line of defence on the phone, revocation is the answer.
 
 ---
 
-## 10. Debug mode (admin role)
+## 10. Debug mode
 
-Visible only when `enrollment.role === "admin"`. Every screen reads `ServiceState` at 1 Hz and the log stream.
+Always available from the status screen once enrolled; nothing on the API side gates it. Every screen reads `ServiceState` at 1 Hz and the log stream.
 
 | Screen | Content |
 |---|---|
@@ -459,7 +468,7 @@ Visible only when `enrollment.role === "admin"`. Every screen reads `ServiceStat
 | Replay | section 11 |
 | Provisioning | section 14: read-only verification of the system-app, root, launcher, and settings state; provisioning itself is done from the shell, not from buttons |
 
-Nothing in debug mode changes what the service sends except replay and the GPS-only toggle, both of which are also available to the beacon role on the status screen's settings sheet.
+Nothing in debug mode changes what the service sends except replay and the GPS-only toggle, both of which are also available on the status screen's settings sheet.
 
 ---
 
@@ -602,9 +611,10 @@ Every drill is logged in the repository under `docs/soak/<date>.md` with the obs
 - Heartbeats are HTTP only; the socket carries locations only.
 - Enrollment happens after provisioning (section 14.1 order); the in-app scanner works with Red-Nose as the launcher, the system camera is not reachable.
 - The heartbeat telemetry `process` group carries `systemApp` and `rootAvailable` in place of `deviceOwnerMode` (section 8, contracts 4.2).
+- The API knows Red-Nose only as a key: debug mode is always available on the phone; the heartbeat's typed `health` core is filled from the phone's own probes and everything else rides in `debug` for the panel to show verbatim (section 8).
+- Hub invocations use the Java client's `Completable` overload and pass the payload as an object (7.4).
 - QR scanning is the Google Play services code scanner (`play-services-code-scanner`, a full-screen system activity behind `NativeRedNose.scanQrCode`, section 9.1): the phone keeps GMS, the app never opens the camera, no CAMERA permission is declared or granted, and `MainActivity.onCreate` warms the scanner module through `ModuleInstallClient`. `react-native-vision-camera` was removed with `react-native-nitro-image` and `react-native-nitro-modules`; vision-camera 5 has no Android code scanner, and vision-camera 4 or an ML Kit frame-processor would each mean a camera pipeline the app does not need.
 
 ## 19. Needs a decision
 
 - Release signing. Every build, including prod, is signed with the checked-in debug keystore (section 15). Before the phone flies with a prod build, decide whether a dedicated release key (kept outside the repository, supplied to CI as a secret) is worth the one-time re-provisioning it forces, since a signature change means uninstalling the module and re-enrolling.
-- The hub socket from the phone. The SignalR connection to `WMSFO_HUB_URL` times out on every attempt from the enrolled phone while heartbeats and fixes over HTTP work, so delivery runs on the HTTP door alone. Decide whether the dev hub host is meant to be reachable from the phone's network (fleet up, listener and security group), or whether the socket path only counts on prod.

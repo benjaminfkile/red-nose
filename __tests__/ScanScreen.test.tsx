@@ -63,7 +63,6 @@ describe('ScanScreen (red-nose.md 9.1)', () => {
         ingestChannel: 'ingest',
         beaconId: 42,
         name: 'beacon',
-        role: 'beacon',
         key: 'wbk_the_key_' + 'x'.repeat(24),
       }),
       { status: 200, headers: { 'content-type': 'application/json' } },

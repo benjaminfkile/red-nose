@@ -3,7 +3,6 @@ package com.wmsfo.rednose.transport
 import com.microsoft.signalr.HubConnection
 import com.wmsfo.rednose.location.LatestFix
 import com.wmsfo.rednose.location.toPayload
-import com.wmsfo.rednose.log.BeaconJson
 import com.wmsfo.rednose.log.RingLog
 import com.wmsfo.rednose.store.Enrollment
 import kotlinx.coroutines.CoroutineScope
@@ -15,7 +14,6 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.rx3.await
 import kotlinx.coroutines.withTimeout
 import kotlinx.coroutines.withTimeoutOrNull
-import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
@@ -48,8 +46,11 @@ class SocketLoop(
                     conn.on("ChannelEvent", ::onEnvelope, JsonElement::class.java)
                     conn.onClosed { cause -> closedSignal.trySend(cause) }
                     withTimeout(10_000) { conn.start().await() }
+                    // The hub methods return void. The Completable overload completes on the
+                    // server's completion message; the Single<T> overload never does (it cannot
+                    // emit a null result), so it would time out on every join and send.
                     withTimeout(10_000) {
-                        conn.invoke(Void::class.java, "JoinPrivateChannel",
+                        conn.invoke("JoinPrivateChannel",
                             enrollment.ingestChannel, enrollment.key).await()
                     }
                     attempt = 0
@@ -85,10 +86,12 @@ class SocketLoop(
 
     override suspend fun sendToChannel(channel: String, fix: LatestFix): Boolean {
         val conn = connection ?: return false
-        val payload = BeaconJson.encodeToString(fix.toPayload())
+        // The payload goes as an object, serialized by the client into the invocation
+        // arguments, so the gateway forwards `data` as the location body itself. A
+        // pre-encoded string would arrive as a JSON string and fail the API's validation.
         return try {
             withTimeout(10_000) {
-                conn.invoke(Void::class.java, "SendToChannel", channel, "location", payload).await()
+                conn.invoke("SendToChannel", channel, "location", fix.toPayload()).await()
             }
             true
         } catch (_: Exception) {
@@ -117,7 +120,7 @@ class SocketLoop(
                 // Re-invoke JoinPrivateChannel immediately and kick the send loop; on
                 // failure this closes the connection and takes the failure branch.
                 try {
-                    conn.invoke(Void::class.java, "JoinPrivateChannel",
+                    conn.invoke("JoinPrivateChannel",
                         enrollment.ingestChannel, enrollment.key).subscribe(
                         { sendLoop.kick() },
                         { closedSignal.trySend(it) },

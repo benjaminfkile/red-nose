@@ -181,14 +181,17 @@ Updated 2026-09-12.
   apply against the patched boot image. The restore kit is complete.
 - Red-Nose dev flavour installed as the `rednose` Magisk module, launcher
   lockdown active, keyguard off, `provision.sh` green.
-- Enrolled against the dev API as beacon `red-nose-DEV` (role admin), live
-  event #1, heartbeats and fixes delivered over HTTP; the dev CDN publishes
-  the phone's position.
-- The SignalR socket to the hub does not connect from the phone: every
-  attempt logs `socket join or start failed ... Timed out waiting for
-  10000 ms`, so `socketState` stays `reconnecting` and delivery runs on the
-  HTTP door. The hub address comes from the API's `WMSFO_HUB_URL`; whether
-  that host is reachable from the phone's network is a backend question.
+- Enrolled against the dev API as beacon `red-nose-DEV`; the socket joins
+  the ingest channel and fixes are delivered over the hub (`socketState`
+  `connected`, no HTTP fallback), heartbeats every 15 s; the dev CDN
+  publishes the phone's position within a second of each fix.
+- Wireless adb at `<phone-lan-address>:5555` (persistent); wake the screen with
+  `input keyevent KEYCODE_WAKEUP` before driving the UI, the JS side sleeps
+  in Doze. Re-enrolling from adb: `su -c "am force-stop com.wmsfo.rednose"`,
+  then `am start -a android.intent.action.VIEW -d '<rednose://enroll URL>'`;
+  the URL is read only at a cold start of the Activity. Never `pm clear`
+  the package: it revokes the runtime permission grants and the service
+  crash-loops until `provision.sh` runs again.
 - To take the phone out of lockdown: `adb shell su -c "rm -rf
   /data/adb/modules/rednose"` and reboot; the stock launcher returns.
   Re-flash the module to put it back.

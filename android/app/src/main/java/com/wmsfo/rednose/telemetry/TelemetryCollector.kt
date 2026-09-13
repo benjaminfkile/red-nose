@@ -10,9 +10,10 @@ import com.wmsfo.rednose.log.RingLog
 import com.wmsfo.rednose.transport.TransportStats
 import java.util.ArrayDeque
 
-// Builds the heartbeat body every tick (red-nose.md 8).  A probe that fails leaves
-// its group null; the whole body is telemetry only.  A ring of fix times over the
-// last 60 s feeds gps.fixesLastMinute.
+// Builds the heartbeat body every tick (red-nose.md 8).  The typed `health` core is
+// filled from the probes' batteryPercent, the current fix's age, and the socket's
+// state; the six debug groups ride verbatim in `debug`.  A probe that fails leaves
+// its group null.  A ring of fix times over the last 60 s feeds debug.gps.fixesLastMinute.
 class TelemetryCollector(
     private val context: Context,
     private val log: RingLog,
@@ -48,20 +49,35 @@ class TelemetryCollector(
 
     fun onTrim(level: Int) { processProbe.lastTrimLevel = level }
 
-    fun build(): Heartbeat = Heartbeat(
-        sentAt = FixTime.rfc3339(clockMs()),
-        power = powerProbe.read(),
-        radio = radioProbe.read(),
-        gps = gpsGroup(),
-        transport = stats.snapshot(),
-        process = processProbe.read(counters),
-        identity = IdentityGroup(
-            deviceModel = "${Build.MANUFACTURER} ${Build.MODEL}",
-            androidVersion = Build.VERSION.RELEASE,
-            appVersion = appVersion,
-            clockSkewMs = clockSkewMs,
-        ),
-    )
+    fun build(): Heartbeat {
+        val power = powerProbe.read()
+        val fix = latestFix
+        val fixAgeS = fix?.let { ageSeconds(it) }
+        val socketState = stats.socketState
+        val debug = DebugGroup(
+            power = power?.group,
+            radio = radioProbe.read(),
+            gps = gpsGroup(),
+            transport = stats.snapshot(),
+            process = processProbe.read(counters),
+            identity = IdentityGroup(
+                deviceModel = "${Build.MANUFACTURER} ${Build.MODEL}",
+                androidVersion = Build.VERSION.RELEASE,
+                appVersion = appVersion,
+                clockSkewMs = clockSkewMs,
+            ),
+        )
+        val health = HealthGroup(
+            batteryPercent = power?.batteryPercent,
+            lastFixAgeS = fixAgeS,
+            socketState = socketState,
+        )
+        return Heartbeat(
+            sentAt = FixTime.rfc3339(clockMs()),
+            health = health,
+            debug = debug,
+        )
+    }
 
     private fun gpsGroup(): GpsGroup {
         val fix = latestFix
@@ -77,12 +93,9 @@ class TelemetryCollector(
             satellitesUsed = gnss.satellitesUsed,
             satellitesInView = gnss.satellitesInView,
             lastFixAccuracyM = fix?.accuracyM,
-            lastFixAgeS = null, // filled below when a fix is available
             fixesLastMinute = fixesLastMinute,
             permission = permissionProbe.read(),
-        ).let { base ->
-            if (fix == null) base else base.copy(lastFixAgeS = ageSeconds(fix))
-        }
+        )
     }
 
     private fun ageSeconds(fix: LatestFix): Int {

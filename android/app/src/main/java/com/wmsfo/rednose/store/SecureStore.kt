@@ -26,7 +26,6 @@ class SecureStore(context: Context) {
             ingestChannel = prefs.getString(K_CHANNEL, "") ?: "",
             beaconId = prefs.getLong(K_BEACON_ID, 0L),
             name = prefs.getString(K_NAME, "") ?: "",
-            role = prefs.getString(K_ROLE, "beacon") ?: "beacon",
             key = key,
             gpsOnlyFallback = prefs.getBoolean(K_GPS_ONLY, false),
         )
@@ -39,7 +38,6 @@ class SecureStore(context: Context) {
             .putString(K_CHANNEL, e.ingestChannel)
             .putLong(K_BEACON_ID, e.beaconId)
             .putString(K_NAME, e.name)
-            .putString(K_ROLE, e.role)
             .putString(K_KEY, e.key)
             .putBoolean(K_GPS_ONLY, e.gpsOnlyFallback)
             .apply()
@@ -60,7 +58,6 @@ class SecureStore(context: Context) {
         const val K_CHANNEL = "ingestChannel"
         const val K_BEACON_ID = "beaconId"
         const val K_NAME = "name"
-        const val K_ROLE = "role"
         const val K_KEY = "key"
         const val K_GPS_ONLY = "gpsOnlyFallback"
     }
