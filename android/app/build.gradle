@@ -155,6 +155,8 @@ dependencies {
 
     // docs/red-nose.md section 2, pinned.
     implementation("com.microsoft.signalr:signalr:10.0.0")
+    // The hub envelope handler takes Gson types (red-nose.md 7.4); the SignalR client brings Gson at runtime only.
+    implementation("com.google.code.gson:gson:2.8.9")
     implementation("com.squareup.okhttp3:okhttp:4.12.0")
     implementation("com.google.android.gms:play-services-location:21.3.0")
     // Google Play services code scanner: a system scanner UI behind one
