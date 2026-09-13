@@ -115,6 +115,7 @@ class SendLoop(
                 // The API accepted this seq: mark it delivered and reset attempt.
                 state.lastDeliveredSeqLocal = fix.seqLocal
                 state.lastReceiptLatencyMs = outcome.latencyMs
+                stats.lastReceiptLatencyMs = outcome.latencyMs
                 state.attempt = 0
                 state.lastSendError = null
                 if (!overHub) {

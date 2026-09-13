@@ -30,7 +30,6 @@ export function ManualEnrollScreen(props: ManualEnrollScreenProps) {
         ingestChannel: me.ingestChannel,
         beaconId: me.beaconId,
         name: me.name,
-        role: me.role,
         key: key.trim(),
       });
       props.onEnrolled();

@@ -7,7 +7,6 @@ export type EnrollResponse = {
   ingestChannel: string;
   beaconId: number;
   name: string;
-  role: 'beacon' | 'admin';
   key: string;
 };
 

@@ -34,7 +34,6 @@ export function StatusScreen(props: StatusScreenProps) {
 
       <View style={styles.card}>
         <Row label="beacon" value={s.enrollment?.name ?? '-'} />
-        <Row label="role" value={s.enrollment?.role ?? '-'} />
         <Row label="socket" value={s.socketState} />
         <Row label="live event" value={liveEventLabel} />
         <Row label="active" value={activeLabel} />
@@ -50,7 +49,7 @@ export function StatusScreen(props: StatusScreenProps) {
         <Text style={styles.sheetText}>settings</Text>
       </TouchableOpacity>
 
-      {s.enrollment?.role === 'admin' && props.onDebug ? (
+      {props.onDebug ? (
         <TouchableOpacity style={styles.sheetButton} onPress={props.onDebug}>
           <Text style={styles.sheetText}>debug</Text>
         </TouchableOpacity>

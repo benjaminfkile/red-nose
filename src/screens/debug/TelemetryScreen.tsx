@@ -1,5 +1,7 @@
-// Telemetry debug screen (red-nose.md 10).  Renders the heartbeat body as a table
-// alongside the last heartbeat outcome, skew, live event, active, and revoked.
+// Telemetry debug screen (red-nose.md 10).  Renders the heartbeat body as it
+// would be sent now: `sentAt`, the typed `health` core, and the free `debug`
+// object (six groups).  Also shows the last heartbeat outcome, skew, live event,
+// active, and revoked.
 
 import React from 'react';
 import { ScrollView, StyleSheet, Text, View } from 'react-native';
@@ -25,29 +27,43 @@ export function TelemetryScreen(props: { state: ServiceState }) {
 }
 
 function Body({ body }: { body: Heartbeat }) {
-  const groups: [string, Record<string, unknown> | null | undefined][] = [
-    ['sentAt', { sentAt: body.sentAt }],
-    ['power', body.power ?? null],
-    ['radio', body.radio ?? null],
-    ['gps', body.gps ?? null],
-    ['transport', body.transport ?? null],
-    ['process', body.process ?? null],
-    ['identity', body.identity ?? null],
-  ];
+  const health = body.health;
+  const debug = body.debug;
   return (
     <View>
-      {groups.map(([name, group]) => (
-        <View key={name} style={styles.group}>
-          <Text style={styles.groupLabel}>{name}</Text>
-          {group == null ? (
-            <Row label="(null)" value="-" />
-          ) : (
-            Object.entries(group).map(([k, v]) => (
-              <Row key={k} label={k} value={formatValue(v)} />
-            ))
-          )}
-        </View>
-      ))}
+      <View style={styles.group}>
+        <Text style={styles.groupLabel}>sentAt</Text>
+        <Row label="sentAt" value={body.sentAt} />
+      </View>
+      <View style={styles.group}>
+        <Text style={styles.groupLabel}>health</Text>
+        {health == null ? (
+          <Row label="(null)" value="-" />
+        ) : (
+          Object.entries(health).map(([k, v]) => (
+            <Row key={k} label={k} value={formatValue(v)} />
+          ))
+        )}
+      </View>
+      <View style={styles.group}>
+        <Text style={styles.groupLabel}>debug</Text>
+        {debug == null ? (
+          <Row label="(null)" value="-" />
+        ) : (
+          (['power', 'radio', 'gps', 'transport', 'process', 'identity'] as const).map(name => (
+            <View key={name} style={styles.subGroup}>
+              <Text style={styles.subGroupLabel}>{name}</Text>
+              {debug[name] == null ? (
+                <Row label="(null)" value="-" />
+              ) : (
+                Object.entries(debug[name] as Record<string, unknown>).map(([k, v]) => (
+                  <Row key={k} label={k} value={formatValue(v)} />
+                ))
+              )}
+            </View>
+          ))
+        )}
+      </View>
     </View>
   );
 }
@@ -82,6 +98,8 @@ const styles = StyleSheet.create({
   sectionTitle: { color: '#f88', fontWeight: '700', marginBottom: 8 },
   group: { marginBottom: 8 },
   groupLabel: { color: '#8cf', marginBottom: 4 },
+  subGroup: { marginLeft: 12, marginBottom: 8 },
+  subGroupLabel: { color: '#6ac', marginBottom: 2 },
   row: { flexDirection: 'row', justifyContent: 'space-between', marginVertical: 2 },
   rowLabel: { color: '#aaa', flexShrink: 0, marginRight: 12 },
   rowValue: { color: '#fff', flexShrink: 1, textAlign: 'right', fontVariant: ['tabular-nums'] },

@@ -675,25 +675,6 @@
         }
       }
     },
-    "/admin/events/{id}/cookies": {
-      "get": {
-        "tags": [
-          "AdminEvents"
-        ],
-        "responses": {
-          "200": {
-            "description": "OK",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/PageResponseOfCookieAdminDto"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
     "/admin/routes": {
       "get": {
         "tags": [
@@ -1262,6 +1243,16 @@
                 }
               }
             }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "AdminCookieTypes"
+        ],
+        "responses": {
+          "204": {
+            "description": "No Content"
           }
         }
       }
@@ -2008,56 +1999,6 @@
         }
       }
     },
-    "/admin/cookies/{id}/hide": {
-      "post": {
-        "tags": [
-          "AdminCookies"
-        ],
-        "responses": {
-          "200": {
-            "description": "OK",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/CookieAdminDto"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/admin/cookies/{id}/unhide": {
-      "post": {
-        "tags": [
-          "AdminCookies"
-        ],
-        "responses": {
-          "200": {
-            "description": "OK",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/CookieAdminDto"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/admin/cookies/{id}": {
-      "delete": {
-        "tags": [
-          "AdminCookies"
-        ],
-        "responses": {
-          "204": {
-            "description": "No Content"
-          }
-        }
-      }
-    },
     "/admin/settings": {
       "get": {
         "tags": [
@@ -2628,9 +2569,6 @@
           "notes": {
             "type": "string"
           },
-          "role": {
-            "type": "string"
-          },
           "keyPrefix": {
             "type": "string"
           },
@@ -2678,7 +2616,7 @@
                 "type": "null"
               },
               {
-                "$ref": "#/components/schemas/HeartbeatBody"
+                "$ref": "#/components/schemas/JsonElement"
               }
             ]
           },
@@ -2687,6 +2625,9 @@
               "null",
               "boolean"
             ]
+          },
+          "healthy": {
+            "type": "boolean"
           },
           "createdBy": {
             "type": "string"
@@ -2773,9 +2714,6 @@
             "format": "int64"
           },
           "name": {
-            "type": "string"
-          },
-          "role": {
             "type": "string"
           },
           "isActive": {
@@ -3061,69 +2999,6 @@
           }
         }
       },
-      "CookieAdminDto": {
-        "type": "object",
-        "properties": {
-          "id": {
-            "pattern": "^-?(?:0|[1-9]\\d*)$",
-            "type": [
-              "integer",
-              "string"
-            ],
-            "format": "int64"
-          },
-          "eventId": {
-            "pattern": "^-?(?:0|[1-9]\\d*)$",
-            "type": [
-              "integer",
-              "string"
-            ],
-            "format": "int64"
-          },
-          "personId": {
-            "pattern": "^-?(?:0|[1-9]\\d*)$",
-            "type": [
-              "integer",
-              "string"
-            ],
-            "format": "int64"
-          },
-          "personEmail": {
-            "type": "string"
-          },
-          "cookieTypeId": {
-            "pattern": "^-?(?:0|[1-9]\\d*)$",
-            "type": [
-              "integer",
-              "string"
-            ],
-            "format": "int64"
-          },
-          "note": {
-            "type": [
-              "null",
-              "string"
-            ]
-          },
-          "leftAt": {
-            "type": "string",
-            "format": "date-time"
-          },
-          "hiddenAt": {
-            "type": [
-              "null",
-              "string"
-            ],
-            "format": "date-time"
-          },
-          "hiddenBy": {
-            "type": [
-              "null",
-              "string"
-            ]
-          }
-        }
-      },
       "CookieLeft": {
         "type": "object",
         "properties": {
@@ -3205,6 +3080,14 @@
           "active": {
             "type": "boolean"
           },
+          "cookieCount": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
           "createdAt": {
             "type": "string",
             "format": "date-time"
@@ -3255,9 +3138,6 @@
             "type": "string"
           },
           "notes": {
-            "type": "string"
-          },
-          "role": {
             "type": "string"
           }
         }
@@ -3594,9 +3474,6 @@
           "name": {
             "type": "string"
           },
-          "role": {
-            "type": "string"
-          },
           "key": {
             "type": "string"
           },
@@ -3778,190 +3655,30 @@
             "type": "string",
             "format": "date-time"
           },
-          "power": {
+          "health": {
             "oneOf": [
               {
                 "type": "null"
               },
               {
-                "$ref": "#/components/schemas/HeartbeatPower"
+                "$ref": "#/components/schemas/HeartbeatHealth"
               }
             ]
           },
-          "radio": {
+          "debug": {
             "oneOf": [
               {
                 "type": "null"
               },
               {
-                "$ref": "#/components/schemas/HeartbeatRadio"
-              }
-            ]
-          },
-          "gps": {
-            "oneOf": [
-              {
-                "type": "null"
-              },
-              {
-                "$ref": "#/components/schemas/HeartbeatGps"
-              }
-            ]
-          },
-          "transport": {
-            "oneOf": [
-              {
-                "type": "null"
-              },
-              {
-                "$ref": "#/components/schemas/HeartbeatTransport"
-              }
-            ]
-          },
-          "process": {
-            "oneOf": [
-              {
-                "type": "null"
-              },
-              {
-                "$ref": "#/components/schemas/HeartbeatProcess"
-              }
-            ]
-          },
-          "identity": {
-            "oneOf": [
-              {
-                "type": "null"
-              },
-              {
-                "$ref": "#/components/schemas/HeartbeatIdentity"
+                "$ref": "#/components/schemas/JsonElement"
               }
             ]
           }
-        }
+        },
+        "additionalProperties": false
       },
-      "HeartbeatGps": {
-        "type": "object",
-        "properties": {
-          "provider": {
-            "type": [
-              "null",
-              "string"
-            ]
-          },
-          "satellitesUsed": {
-            "pattern": "^-?(?:0|[1-9]\\d*)$",
-            "type": [
-              "null",
-              "integer",
-              "string"
-            ],
-            "format": "int32"
-          },
-          "satellitesInView": {
-            "pattern": "^-?(?:0|[1-9]\\d*)$",
-            "type": [
-              "null",
-              "integer",
-              "string"
-            ],
-            "format": "int32"
-          },
-          "lastFixAccuracyM": {
-            "pattern": "^-?(?:0|[1-9]\\d*)(?:\\.\\d+)?(?:[eE][+-]?\\d+)?$",
-            "type": [
-              "null",
-              "number",
-              "string"
-            ],
-            "format": "double"
-          },
-          "lastFixAgeS": {
-            "pattern": "^-?(?:0|[1-9]\\d*)$",
-            "type": [
-              "null",
-              "integer",
-              "string"
-            ],
-            "format": "int32"
-          },
-          "fixesLastMinute": {
-            "pattern": "^-?(?:0|[1-9]\\d*)$",
-            "type": [
-              "null",
-              "integer",
-              "string"
-            ],
-            "format": "int32"
-          },
-          "permission": {
-            "oneOf": [
-              {
-                "type": "null"
-              },
-              {
-                "$ref": "#/components/schemas/HeartbeatGpsPermission"
-              }
-            ]
-          }
-        }
-      },
-      "HeartbeatGpsPermission": {
-        "type": "object",
-        "properties": {
-          "foreground": {
-            "type": [
-              "null",
-              "boolean"
-            ]
-          },
-          "background": {
-            "type": [
-              "null",
-              "boolean"
-            ]
-          },
-          "precise": {
-            "type": [
-              "null",
-              "boolean"
-            ]
-          }
-        }
-      },
-      "HeartbeatIdentity": {
-        "type": "object",
-        "properties": {
-          "deviceModel": {
-            "type": [
-              "null",
-              "string"
-            ]
-          },
-          "androidVersion": {
-            "type": [
-              "null",
-              "string"
-            ]
-          },
-          "appVersion": {
-            "type": [
-              "null",
-              "string"
-            ]
-          },
-          "clockSkewMs": {
-            "pattern": "^-?(?:0|[1-9]\\d*)$",
-            "type": [
-              "null",
-              "integer",
-              "string"
-            ],
-            "format": "int64"
-          }
-        }
-      },
-      "HeartbeatPower": {
+      "HeartbeatHealth": {
         "type": "object",
         "properties": {
           "batteryPercent": {
@@ -3973,13 +3690,7 @@
             ],
             "format": "int32"
           },
-          "charging": {
-            "type": [
-              "null",
-              "boolean"
-            ]
-          },
-          "batteryTempC": {
+          "lastFixAgeS": {
             "pattern": "^-?(?:0|[1-9]\\d*)(?:\\.\\d+)?(?:[eE][+-]?\\d+)?$",
             "type": [
               "null",
@@ -3988,116 +3699,14 @@
             ],
             "format": "double"
           },
-          "thermalStatus": {
+          "socketState": {
             "type": [
               "null",
               "string"
             ]
           }
-        }
-      },
-      "HeartbeatProcess": {
-        "type": "object",
-        "properties": {
-          "deviceUptimeS": {
-            "pattern": "^-?(?:0|[1-9]\\d*)$",
-            "type": [
-              "null",
-              "integer",
-              "string"
-            ],
-            "format": "int64"
-          },
-          "serviceUptimeS": {
-            "pattern": "^-?(?:0|[1-9]\\d*)$",
-            "type": [
-              "null",
-              "integer",
-              "string"
-            ],
-            "format": "int64"
-          },
-          "serviceRestartCount": {
-            "pattern": "^-?(?:0|[1-9]\\d*)$",
-            "type": [
-              "null",
-              "integer",
-              "string"
-            ],
-            "format": "int32"
-          },
-          "memoryPressure": {
-            "type": [
-              "null",
-              "string"
-            ]
-          },
-          "batteryOptimizationExempt": {
-            "type": [
-              "null",
-              "boolean"
-            ]
-          },
-          "notificationPermission": {
-            "type": [
-              "null",
-              "boolean"
-            ]
-          },
-          "systemApp": {
-            "type": [
-              "null",
-              "boolean"
-            ]
-          },
-          "rootAvailable": {
-            "type": [
-              "null",
-              "boolean"
-            ]
-          }
-        }
-      },
-      "HeartbeatRadio": {
-        "type": "object",
-        "properties": {
-          "networkType": {
-            "type": [
-              "null",
-              "string"
-            ]
-          },
-          "signalDbm": {
-            "pattern": "^-?(?:0|[1-9]\\d*)$",
-            "type": [
-              "null",
-              "integer",
-              "string"
-            ],
-            "format": "int32"
-          },
-          "signalLevel": {
-            "pattern": "^-?(?:0|[1-9]\\d*)$",
-            "type": [
-              "null",
-              "integer",
-              "string"
-            ],
-            "format": "int32"
-          },
-          "airplaneMode": {
-            "type": [
-              "null",
-              "boolean"
-            ]
-          },
-          "connected": {
-            "type": [
-              "null",
-              "boolean"
-            ]
-          }
-        }
+        },
+        "additionalProperties": false
       },
       "HeartbeatResponse": {
         "type": "object",
@@ -4121,53 +3730,6 @@
           "serverTime": {
             "type": "string",
             "format": "date-time"
-          }
-        }
-      },
-      "HeartbeatTransport": {
-        "type": "object",
-        "properties": {
-          "socketState": {
-            "type": [
-              "null",
-              "string"
-            ]
-          },
-          "reconnectCount": {
-            "pattern": "^-?(?:0|[1-9]\\d*)$",
-            "type": [
-              "null",
-              "integer",
-              "string"
-            ],
-            "format": "int32"
-          },
-          "httpFallbackSeconds": {
-            "pattern": "^-?(?:0|[1-9]\\d*)$",
-            "type": [
-              "null",
-              "integer",
-              "string"
-            ],
-            "format": "int32"
-          },
-          "lastReceiptLatencyMs": {
-            "pattern": "^-?(?:0|[1-9]\\d*)$",
-            "type": [
-              "null",
-              "integer",
-              "string"
-            ],
-            "format": "int32"
-          },
-          "sendsFailedSinceBoot": {
-            "pattern": "^-?(?:0|[1-9]\\d*)$",
-            "type": [
-              "null",
-              "integer",
-              "string"
-            ],
-            "format": "int32"
           }
         }
       },
@@ -4808,6 +4370,12 @@
               "type": "string"
             }
           },
+          "dziUrl": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
           "uploadedBy": {
             "type": "string"
           },
@@ -4873,6 +4441,12 @@
             "additionalProperties": {
               "type": "string"
             }
+          },
+          "dzi": {
+            "type": [
+              "null",
+              "string"
+            ]
           }
         }
       },
@@ -5062,13 +4636,6 @@
           },
           "leftAt": {
             "type": "string",
-            "format": "date-time"
-          },
-          "hiddenAt": {
-            "type": [
-              "null",
-              "string"
-            ],
             "format": "date-time"
           }
         }
@@ -5402,23 +4969,6 @@
             "type": "array",
             "items": {
               "$ref": "#/components/schemas/ContactMessageDto"
-            }
-          },
-          "nextCursor": {
-            "type": [
-              "null",
-              "string"
-            ]
-          }
-        }
-      },
-      "PageResponseOfCookieAdminDto": {
-        "type": "object",
-        "properties": {
-          "items": {
-            "type": "array",
-            "items": {
-              "$ref": "#/components/schemas/CookieAdminDto"
             }
           },
           "nextCursor": {
@@ -6811,9 +6361,6 @@
     },
     {
       "name": "AdminIcons"
-    },
-    {
-      "name": "AdminCookies"
     },
     {
       "name": "AdminSettings"

@@ -61,7 +61,6 @@ class ServiceStateJsonTest {
         enrollment = EnrollmentPublic(
             beaconId = 7L,
             name = "Helicopter",
-            role = "beacon",
             // First 12 chars of the fake full key "wbk_abcdefghSECRET_KEY_MUST_NOT_LEAK".
             keyPrefix = "wbk_abcdefgh",
             apiBaseUrl = "https://api.example",

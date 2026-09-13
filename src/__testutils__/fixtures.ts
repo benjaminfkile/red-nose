@@ -9,7 +9,6 @@ export function makeServiceState(o: Partial<ServiceState> = {}): ServiceState {
     enrollment: {
       beaconId: 1,
       name: 'beacon',
-      role: 'beacon',
       keyPrefix: 'wbk_prefix12',
       apiBaseUrl: 'https://api.example.org',
       hubUrl: 'https://hub.example.org',

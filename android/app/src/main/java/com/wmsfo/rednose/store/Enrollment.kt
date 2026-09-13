@@ -12,7 +12,6 @@ data class Enrollment(
     val ingestChannel: String,
     val beaconId: Long,
     val name: String,
-    val role: String,
     val key: String,
     val gpsOnlyFallback: Boolean = false,
 ) {
@@ -21,7 +20,6 @@ data class Enrollment(
     fun redacted(): EnrollmentPublic = EnrollmentPublic(
         beaconId = beaconId,
         name = name,
-        role = role,
         keyPrefix = keyPrefix,
         apiBaseUrl = apiBaseUrl,
         hubUrl = hubUrl,
@@ -34,7 +32,6 @@ data class Enrollment(
 data class EnrollmentPublic(
     val beaconId: Long,
     val name: String,
-    val role: String,
     val keyPrefix: String,
     val apiBaseUrl: String,
     val hubUrl: String,

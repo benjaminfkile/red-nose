@@ -8,8 +8,9 @@ import android.os.Build
 import android.os.PowerManager
 import com.wmsfo.rednose.log.RingLog
 
-// Battery, charging state, temperature, and thermal status
-// (red-nose.md 8, contracts 0.5 thermal names).
+// Battery, charging state, temperature, and thermal status (red-nose.md 8;
+// contracts 0.5 thermal names).  batteryPercent feeds the health group;
+// the rest goes verbatim in debug.power.
 class PowerProbe(
     private val context: Context,
     private val log: RingLog,
@@ -18,7 +19,9 @@ class PowerProbe(
 ) {
     private var lastLogAtMs: Long = 0L
 
-    fun read(): PowerGroup? = try {
+    data class Reading(val batteryPercent: Int?, val group: PowerGroup)
+
+    fun read(): Reading? = try {
         val bm = context.getSystemService(Context.BATTERY_SERVICE) as BatteryManager
         val percent = bm.getIntProperty(BatteryManager.BATTERY_PROPERTY_CAPACITY).takeIf { it != Integer.MIN_VALUE }
         val charging = try { bm.isCharging } catch (_: Throwable) { null }
@@ -30,11 +33,13 @@ class PowerProbe(
             val pm = context.getSystemService(Context.POWER_SERVICE) as PowerManager
             thermalName(pm.currentThermalStatus)
         } else null
-        PowerGroup(
+        Reading(
             batteryPercent = percent,
-            charging = charging,
-            batteryTempC = tempC,
-            thermalStatus = thermal,
+            group = PowerGroup(
+                charging = charging,
+                batteryTempC = tempC,
+                thermalStatus = thermal,
+            ),
         )
     } catch (e: Throwable) {
         maybeLog("power probe failed: ${e.javaClass.simpleName}:${e.message}")

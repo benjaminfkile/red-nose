@@ -2,12 +2,25 @@ package com.wmsfo.rednose.telemetry
 
 import kotlinx.serialization.Serializable
 
-// The POST /beacons/heartbeat body, contracts 4.2, with red-nose.md's `process.systemApp`
-// and `process.rootAvailable` replacing `deviceOwnerMode` (red-nose.md 18).
-// Every leaf is nullable per contracts 4.2 (a failing probe leaves its group's fields null).
+// The POST /beacons/heartbeat body (contracts 4.2; red-nose.md 8): sentAt, a typed
+// `health` core the API reads, and a free `debug` object the panel renders as a
+// JSON tree.  Every leaf is nullable (a failing probe leaves its group's fields null).
 @Serializable
 data class Heartbeat(
     val sentAt: String,
+    val health: HealthGroup? = null,
+    val debug: DebugGroup? = null,
+)
+
+@Serializable
+data class HealthGroup(
+    val batteryPercent: Int? = null,
+    val lastFixAgeS: Int? = null,
+    val socketState: String? = null,
+)
+
+@Serializable
+data class DebugGroup(
     val power: PowerGroup? = null,
     val radio: RadioGroup? = null,
     val gps: GpsGroup? = null,
@@ -18,7 +31,6 @@ data class Heartbeat(
 
 @Serializable
 data class PowerGroup(
-    val batteryPercent: Int? = null,
     val charging: Boolean? = null,
     val batteryTempC: Double? = null,
     val thermalStatus: String? = null,
@@ -46,14 +58,12 @@ data class GpsGroup(
     val satellitesUsed: Int? = null,
     val satellitesInView: Int? = null,
     val lastFixAccuracyM: Double? = null,
-    val lastFixAgeS: Int? = null,
     val fixesLastMinute: Int? = null,
     val permission: GpsPermissionGroup? = null,
 )
 
 @Serializable
 data class TransportGroup(
-    val socketState: String? = null,
     val reconnectCount: Int? = null,
     val httpFallbackSeconds: Int? = null,
     val lastReceiptLatencyMs: Long? = null,

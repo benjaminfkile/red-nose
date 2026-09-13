@@ -38,7 +38,6 @@ export function ScanScreen(props: ScanScreenProps) {
         ingestChannel: res.ingestChannel,
         beaconId: res.beaconId,
         name: res.name,
-        role: res.role,
         key: res.key,
       });
       props.onEnrolled();

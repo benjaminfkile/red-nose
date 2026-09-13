@@ -31,9 +31,11 @@ function beacon(overrides: Partial<SoakBeacon> = {}): SoakBeacon {
     name: 'phone-1',
     lastHeartbeatAt: '2026-12-22T01:30:55.000Z',
     telemetry: {
-      transport: { socketState: 'connected' },
-      process: { serviceRestartCount: 2 },
-      power: { batteryPercent: 87, charging: true },
+      health: { batteryPercent: 87, socketState: 'connected' },
+      debug: {
+        process: { serviceRestartCount: 2 },
+        power: { charging: true },
+      },
     },
     ...overrides,
   };
@@ -131,9 +133,11 @@ describe('pollBeacons', () => {
           id: 2,
           name: 'phone-b',
           telemetry: {
-            transport: { socketState: 'reconnecting' },
-            process: { serviceRestartCount: 5 },
-            power: { batteryPercent: 42, charging: false },
+            health: { batteryPercent: 42, socketState: 'reconnecting' },
+            debug: {
+              process: { serviceRestartCount: 5 },
+              power: { charging: false },
+            },
           },
         }),
       ],
