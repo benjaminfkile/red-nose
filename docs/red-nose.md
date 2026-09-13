@@ -329,7 +329,7 @@ while (isActive) {
     socketState = if (attempt == 0) CONNECTING else RECONNECTING
     val conn = HubClient.build(enrollment.hubUrl)          // WEBSOCKETS, shouldSkipNegotiate(true), keepAlive 15 s, timeout 30 s
     try {
-        conn.on("ChannelEvent", ::onEnvelope, JsonElement::class.java)
+        conn.on("ChannelEvent", router::onEnvelope, com.google.gson.JsonElement::class.java)  // Gson-typed, see below
         conn.onClosed { cause -> closedSignal.trySend(cause) }
         withTimeout(10_000) { conn.start().await() }                                   // kotlinx-coroutines-rx3
         withTimeout(10_000) { conn.invoke(Void::class.java, "JoinPrivateChannel", enrollment.ingestChannel, enrollment.key).await() }
@@ -347,6 +347,8 @@ while (isActive) {
 ```
 
 `onEnvelope` routes on `channel` and `event`: `joined` for the ingest channel confirms `CONNECTED`; `channelEvicted` with `auth_expired` re-invokes `JoinPrivateChannel` immediately and kicks the send loop; `service_removed` retries the join every 5 s; anything else is ignored. A join that throws after an eviction closes the connection and takes the failure branch. At most one `HubConnection` exists.
+
+The handler is registered with `com.google.gson.JsonElement::class.java` because the SignalR Java client deserializes handler arguments with Gson: a `kotlinx.serialization.json.JsonElement` is a sealed type Gson cannot construct, so the client dropped every envelope silently and evictions never reached the loop. The router walks the Gson tree (or an `Object`/map alternative) and reads `event`, `reason`, and `data.reason`; both eviction shapes on the wire are accepted. Every eviction, every re-join success, and every re-join failure is written to the ring log (`socket: evicted <reason>`, `socket: rejoined`, `socket: rejoin failed <error>`, red-nose.md 7.6), and `rejoinCount` on `TransportStats` (section 8) counts every `JoinPrivateChannel` re-invocation the loop issues on a still-open connection.
 
 ### 7.5 Send loop
 
@@ -369,6 +371,8 @@ suspend fun attempt() {
 ```
 
 `onSendFailed` logs the outcome (hub: the generic text and `seqLocal`; HTTP: `code` and `requestId`) and increments `sendsFailedSinceBoot` only while `lastHeartbeat.liveEventId != null`. A rejected hub invoke never falls back to HTTP while the socket is up. A fix that arrives during an in-flight send replaces `latestFix` and goes out when the attempt resolves. `httpFallbackSeconds` accrues while a fix is delivered over HTTP.
+
+Three consecutive `hub_rejected` outcomes while `socketState == CONNECTED` ask the socket loop to re-join the ingest channel once (the same path as `channelEvicted(auth_expired)`, contracts 9.2), for the case where membership was lost without an envelope reaching the client. The counter resets on any delivered send. If the re-join throws, the socket loop takes its close-or-failure branch (`socketState = RECONNECTING`, backoff) and the next attempts fall back to HTTP until the socket is `CONNECTED` again.
 
 ### 7.6 Heartbeat loop
 
@@ -416,7 +420,7 @@ One `Json { encodeDefaults = true; explicitNulls = true; ignoreUnknownKeys = tru
 | `gps.lastFixAccuracyM` | from `latestFix` |
 | `gps.fixesLastMinute` | ring of fix timestamps over the last 60 s |
 | `gps.permission.foreground`, `.background`, `.precise` | `checkSelfPermission` for `ACCESS_FINE_LOCATION`, `ACCESS_BACKGROUND_LOCATION`; precise is fine granted (as opposed to coarse only) |
-| `transport.reconnectCount`, `transport.httpFallbackSeconds`, `transport.lastReceiptLatencyMs`, `transport.sendsFailedSinceBoot` | `TransportStats` |
+| `transport.reconnectCount`, `transport.rejoinCount`, `transport.httpFallbackSeconds`, `transport.lastReceiptLatencyMs`, `transport.sendsFailedSinceBoot` | `TransportStats` |
 | `process.deviceUptimeS` | `SystemClock.elapsedRealtime() / 1000` |
 | `process.serviceUptimeS` | since `onCreate` |
 | `process.serviceRestartCount` | `BootCounters` |

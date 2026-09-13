@@ -58,10 +58,16 @@ class SendLoopTest {
 
     private class FakeHub : SendLoop.HubSender {
         val calls = ConcurrentLinkedQueue<Long>()
+        val rejoins = ConcurrentLinkedQueue<Long>()
         var respond: suspend (LatestFix) -> Boolean = { true }
+        var onRejoin: () -> Unit = { }
         override suspend fun sendToChannel(channel: String, fix: LatestFix): Boolean {
             calls.add(fix.seqLocal)
             return respond(fix)
+        }
+        override fun requestRejoin() {
+            rejoins.add(System.nanoTime())
+            onRejoin()
         }
     }
 
@@ -216,6 +222,91 @@ class SendLoopTest {
         assertEquals(listOf(1L, 2L), hub.calls.toList())
         assertEquals(2L, state.lastDeliveredSeqLocal)
         assertEquals(0, state.attempt)
+    }
+
+    @Test fun three_consecutive_hub_rejections_ask_for_rejoin_once() = runTest {
+        val state = FakeState().apply { latestFix = fix(1); socketState = "connected" }
+        val hub = FakeHub().apply { respond = { false } }
+        val rest = FakeRest()
+        val loop = make(state, hub, rest)
+
+        // Two rejections: no rejoin requested yet.
+        loop.attempt(); assertTrue(hub.rejoins.isEmpty())
+        state.latestFix = fix(2); loop.attempt(); assertTrue(hub.rejoins.isEmpty())
+
+        // Third consecutive hub_rejected while socketState == connected asks for
+        // exactly one re-join (contracts 9.2).
+        state.latestFix = fix(3); loop.attempt()
+        assertEquals("re-join requested exactly once at the third rejection",
+            1, hub.rejoins.size)
+
+        // Two more rejections without a delivered send in between: no additional
+        // re-join request, because the counter reset when it fired.
+        state.latestFix = fix(4); loop.attempt()
+        state.latestFix = fix(5); loop.attempt()
+        assertEquals(1, hub.rejoins.size)
+    }
+
+    @Test fun delivered_send_resets_the_rejoin_counter() = runTest {
+        val state = FakeState().apply { latestFix = fix(1); socketState = "connected" }
+        var reject = true
+        val hub = FakeHub().apply { respond = { !reject } }
+        val rest = FakeRest()
+        val loop = make(state, hub, rest)
+
+        // Two rejections raise the counter to 2.
+        loop.attempt()
+        state.latestFix = fix(2); loop.attempt()
+        // Then a delivered send: the counter resets to 0.
+        reject = false
+        state.latestFix = fix(3); loop.attempt()
+        assertEquals(3L, state.lastDeliveredSeqLocal)
+
+        // Two more rejections must not trigger a re-join yet.
+        reject = true
+        state.latestFix = fix(4); loop.attempt()
+        state.latestFix = fix(5); loop.attempt()
+        assertTrue("counter reset on delivery", hub.rejoins.isEmpty())
+
+        // A third rejection in the fresh streak triggers exactly one re-join.
+        state.latestFix = fix(6); loop.attempt()
+        assertEquals(1, hub.rejoins.size)
+    }
+
+    @Test fun a_throwing_rejoin_does_not_crash_the_send_loop() = runTest {
+        val state = FakeState().apply { latestFix = fix(1); socketState = "connected" }
+        val hub = FakeHub().apply {
+            respond = { false }
+            onRejoin = { throw RuntimeException("no_connection") }
+        }
+        val rest = FakeRest()
+        val loop = make(state, hub, rest)
+
+        loop.attempt()
+        state.latestFix = fix(2); loop.attempt()
+        // The third rejection tries to re-join; the fake throws. The send loop
+        // swallows it (the socket loop is responsible for its own failure branch).
+        state.latestFix = fix(3); loop.attempt()
+
+        assertEquals(1, hub.rejoins.size)
+        assertEquals("hub_rejected", state.lastSendError)
+    }
+
+    @Test fun hub_rejected_while_socket_reconnecting_does_not_count_toward_rejoin() = runTest {
+        val state = FakeState().apply { latestFix = fix(1); socketState = "reconnecting" }
+        val hub = FakeHub().apply { respond = { false } }
+        val rest = FakeRest().apply {
+            respond = { SendLoop.PostResult(false, null, "no_live_event", null) }
+        }
+        val loop = make(state, hub, rest)
+
+        // While reconnecting the send loop uses HTTP, not the hub; a hub_rejected
+        // outcome cannot arise here, so no re-join is ever requested.
+        repeat(5) {
+            state.latestFix = fix((it + 2).toLong()); loop.attempt()
+        }
+        assertTrue(hub.rejoins.isEmpty())
+        assertTrue("hub not touched while reconnecting", hub.calls.isEmpty())
     }
 
     @Test fun sends_failed_since_boot_only_counts_when_liveEventId_is_set() = runTest {

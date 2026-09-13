@@ -65,6 +65,7 @@ data class GpsGroup(
 @Serializable
 data class TransportGroup(
     val reconnectCount: Int? = null,
+    val rejoinCount: Int? = null,
     val httpFallbackSeconds: Int? = null,
     val lastReceiptLatencyMs: Long? = null,
     val sendsFailedSinceBoot: Int? = null,

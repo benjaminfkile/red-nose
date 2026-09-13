@@ -1,5 +1,6 @@
 package com.wmsfo.rednose.transport
 
+import com.google.gson.JsonElement
 import com.microsoft.signalr.HubConnection
 import com.wmsfo.rednose.location.LatestFix
 import com.wmsfo.rednose.location.toPayload
@@ -14,10 +15,6 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.rx3.await
 import kotlinx.coroutines.withTimeout
 import kotlinx.coroutines.withTimeoutOrNull
-import kotlinx.serialization.json.JsonElement
-import kotlinx.serialization.json.jsonObject
-import kotlinx.serialization.json.jsonPrimitive
-import kotlinx.serialization.json.contentOrNull
 
 // The socket loop of red-nose.md 7.4 / contracts 9.2.  One HubConnection at a time.
 // Never blocks the dispatcher (await() from kotlinx-coroutines-rx3, never blockingAwait).
@@ -36,6 +33,13 @@ class SocketLoop(
     private val closedSignal: Channel<Throwable?> = Channel(capacity = Channel.CONFLATED)
     private var job: Job? = null
 
+    private val router = SocketEnvelopeRouter(
+        stats = stats,
+        log = log,
+        onAuthExpired = ::rejoin,
+        onServiceRemoved = { closedSignal.trySend(RuntimeException("service_removed")) },
+    )
+
     fun start(scope: CoroutineScope) {
         if (job?.isActive == true) return
         job = scope.launch {
@@ -43,7 +47,10 @@ class SocketLoop(
                 stats.socketState = if (attempt == 0) "connecting" else "reconnecting"
                 val conn = hubBuild(enrollment.hubUrl)
                 try {
-                    conn.on("ChannelEvent", ::onEnvelope, JsonElement::class.java)
+                    // The Java SignalR client deserializes handler arguments with Gson;
+                    // registering the kotlinx.serialization sealed JsonElement dropped
+                    // every envelope silently.  Gson builds `com.google.gson.JsonElement`.
+                    conn.on("ChannelEvent", router::onEnvelope, JsonElement::class.java)
                     conn.onClosed { cause -> closedSignal.trySend(cause) }
                     withTimeout(10_000) { conn.start().await() }
                     // The hub methods return void. The Completable overload completes on the
@@ -99,42 +106,38 @@ class SocketLoop(
         }
     }
 
-    private fun onEnvelope(env: JsonElement) {
-        val obj = try { env.jsonObject } catch (_: Throwable) { return }
-        val event = obj["event"]?.jsonPrimitive?.contentOrNull ?: return
-        when (event) {
-            "joined" -> stats.socketState = "connected"
-            "channelEvicted" -> {
-                val reason = obj["reason"]?.jsonPrimitive?.contentOrNull
-                    ?: (obj["data"]?.jsonObject?.get("reason")?.jsonPrimitive?.contentOrNull)
-                onEviction(reason)
-            }
-            else -> Unit
-        }
+    // Send-loop hook: three consecutive hub_rejected outcomes while socketState is
+    // "connected" ask for a re-join on the same path as `auth_expired` (contracts 9.2).
+    override fun requestRejoin() {
+        rejoin()
     }
 
-    private fun onEviction(reason: String?) {
-        when (reason) {
-            "auth_expired" -> {
-                val conn = connection ?: return
-                // Re-invoke JoinPrivateChannel immediately and kick the send loop; on
-                // failure this closes the connection and takes the failure branch.
-                try {
-                    conn.invoke("JoinPrivateChannel",
-                        enrollment.ingestChannel, enrollment.key).subscribe(
-                        { sendLoop.kick() },
-                        { closedSignal.trySend(it) },
-                    )
-                } catch (t: Throwable) {
+    // Re-invoke JoinPrivateChannel on the current connection. Fire-and-forget: the
+    // subscribe callbacks log the outcome and, on failure, drive the outer loop
+    // into its close-or-failure branch (reconnecting, backoff).
+    private fun rejoin() {
+        stats.rejoinCount = stats.rejoinCount + 1
+        val conn = connection
+        if (conn == null) {
+            log.socket("rejoin failed no_connection")
+            closedSignal.trySend(RuntimeException("no_connection"))
+            return
+        }
+        try {
+            conn.invoke("JoinPrivateChannel",
+                enrollment.ingestChannel, enrollment.key).subscribe(
+                {
+                    log.socket("rejoined")
+                    sendLoop.kick()
+                },
+                { t ->
+                    log.socket("rejoin failed", t)
                     closedSignal.trySend(t)
-                }
-            }
-            "service_removed" -> {
-                // The socket loop's normal 5 s retry is achieved by driving the
-                // connection closed here; the outer loop will apply backoff.
-                closedSignal.trySend(RuntimeException("service_removed"))
-            }
-            else -> Unit
+                },
+            )
+        } catch (t: Throwable) {
+            log.socket("rejoin failed", t)
+            closedSignal.trySend(t)
         }
     }
 
