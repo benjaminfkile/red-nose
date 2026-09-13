@@ -69,6 +69,7 @@ export type Heartbeat = {
     } | null;
     transport: {
       reconnectCount: number | null;
+      rejoinCount: number | null;
       httpFallbackSeconds: number | null;
       lastReceiptLatencyMs: number | null;
       sendsFailedSinceBoot: number | null;
