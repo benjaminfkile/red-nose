@@ -43,6 +43,15 @@ class SendLoop(
     interface HubSender {
         /** Resolves to true iff the invoke returned 2xx (contracts 9.2). */
         suspend fun sendToChannel(channel: String, fix: LatestFix): Boolean
+
+        /**
+         * Ask the socket loop to re-invoke `JoinPrivateChannel` on its current
+         * connection (contracts 9.2). Called after three consecutive `hub_rejected`
+         * outcomes while `socketState == connected`; if the re-join throws, the
+         * socket loop takes its failure branch and the next attempts fall back to
+         * HTTP until the socket is `connected` again.
+         */
+        fun requestRejoin()
     }
 
     interface RestSender {
@@ -59,6 +68,11 @@ class SendLoop(
     private val kick: Channel<Unit> = Channel(capacity = Channel.CONFLATED)
     private val retryNow: Channel<Unit> = Channel(capacity = Channel.CONFLATED)
     private var job: Job? = null
+
+    // Contracts 9.2: three consecutive hub_rejected outcomes while socketState is
+    // "connected" ask the socket loop to re-join once; the counter resets on any
+    // delivered send.
+    private var consecutiveHubRejections: Int = 0
 
     fun kick() { kick.trySend(Unit) }
     fun retryNow() { retryNow.trySend(Unit) }
@@ -118,6 +132,7 @@ class SendLoop(
                 stats.lastReceiptLatencyMs = outcome.latencyMs
                 state.attempt = 0
                 state.lastSendError = null
+                consecutiveHubRejections = 0
                 if (!overHub) {
                     // Accrue HTTP fallback seconds on TransportStats (red-nose.md 8):
                     // the heartbeat body's transport.* group is built from this field.
@@ -137,6 +152,20 @@ class SendLoop(
                     else outcome.code
                 log.send("failed seq=${fix.seqLocal} door=${if (overHub) "hub" else "http"} code=${outcome.code}" +
                     (outcome.requestId?.let { " requestId=$it" } ?: ""))
+                if (overHub && outcome.code == "hub_rejected" && state.socketState == "connected") {
+                    // Contracts 9.2: an unannounced loss of channel membership shows
+                    // up as repeated `hub_rejected` while socketState stays connected.
+                    // Ask the socket loop to re-join once; if the re-join throws, the
+                    // socket loop takes its failure branch and this loop's next
+                    // attempts go over HTTP until the socket is connected again.
+                    consecutiveHubRejections = consecutiveHubRejections + 1
+                    if (consecutiveHubRejections >= 3) {
+                        consecutiveHubRejections = 0
+                        try { hub.requestRejoin() } catch (t: Throwable) {
+                            log.socket("rejoin request failed", t)
+                        }
+                    }
+                }
                 val next = backoff(state.attempt)
                 state.attempt = state.attempt + 1
                 // Wait the backoff or a kick/retry, whichever comes first.
