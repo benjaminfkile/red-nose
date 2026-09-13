@@ -86,10 +86,11 @@ class SendLoopTest {
     )
 
     @Test fun delivered_over_hub_resets_attempt_and_advances_seq() = runTest {
+        val stats = TransportStats()
         val state = FakeState().apply { attempt = 2; latestFix = fix(5) }
         val hub = FakeHub()
         val rest = FakeRest()
-        val loop = make(state, hub, rest, elapsed = object : () -> Long {
+        val loop = make(state, hub, rest, stats = stats, elapsed = object : () -> Long {
             var n = 0L
             override fun invoke(): Long { n += 50L; return n }
         })
@@ -102,6 +103,10 @@ class SendLoopTest {
         assertEquals(0, state.attempt)
         assertNull(state.lastSendError)
         assertFalse(state.inFlight)
+        // R9: hub-delivered fixes also stamp lastReceiptLatencyMs on both the
+        // service state (status screen) and TransportStats (heartbeat body).
+        assertEquals(50L, state.lastReceiptLatencyMs)
+        assertEquals(50L, stats.lastReceiptLatencyMs)
     }
 
     @Test fun rejected_over_hub_does_not_fall_back_to_http() = runTest {

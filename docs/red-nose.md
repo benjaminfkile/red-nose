@@ -400,11 +400,10 @@ One `Json { encodeDefaults = true; explicitNulls = true; ignoreUnknownKeys = tru
 }
 ```
 
-`health` is the API's typed core, filled from `power.batteryPercent`, `gps.lastFixAgeS`, and `transport.socketState`. `debug` is everything the phone knows, the six groups below verbatim; the admin panel shows it as a JSON tree and never reads it, so a new leaf here is a one-line change in this file and nowhere else. Every value is nullable and a probe that fails leaves its group's fields null and logs once per minute.
+`health` is the API's typed core: `batteryPercent` from `BatteryManager.BATTERY_PROPERTY_CAPACITY`, `lastFixAgeS` from `latestFix` (age from `elapsedRealtime` since the fix), and `socketState` from `TransportStats.socketState`. `debug` is everything else the phone knows, the six groups below verbatim (those three fields are not duplicated in the debug groups); the admin panel shows it as a JSON tree and never reads it, so a new leaf here is a one-line change in this file and nowhere else. Every value is nullable and a probe that fails leaves its group's fields null and logs once per minute.
 
 | Group and field (inside `debug`) | Android source |
 |---|---|
-| `power.batteryPercent` | `BatteryManager.BATTERY_PROPERTY_CAPACITY` |
 | `power.charging` | `BatteryManager.isCharging` |
 | `power.batteryTempC` | `ACTION_BATTERY_CHANGED` extra `EXTRA_TEMPERATURE` / 10 |
 | `power.thermalStatus` | `PowerManager.currentThermalStatus` mapped to the contract names |
@@ -414,10 +413,10 @@ One `Json { encodeDefaults = true; explicitNulls = true; ignoreUnknownKeys = tru
 | `radio.connected` | default network has `NET_CAPABILITY_VALIDATED` |
 | `gps.provider` | `fused`, `gps`, or `replay` |
 | `gps.satellitesUsed`, `gps.satellitesInView` | `GnssStats` |
-| `gps.lastFixAccuracyM`, `gps.lastFixAgeS` | from `latestFix`; age from `elapsedRealtime` since the fix |
+| `gps.lastFixAccuracyM` | from `latestFix` |
 | `gps.fixesLastMinute` | ring of fix timestamps over the last 60 s |
 | `gps.permission.foreground`, `.background`, `.precise` | `checkSelfPermission` for `ACCESS_FINE_LOCATION`, `ACCESS_BACKGROUND_LOCATION`; precise is fine granted (as opposed to coarse only) |
-| `transport.*` | `TransportStats`: socket state, reconnect count since service start, `httpFallbackSeconds`, `lastReceiptLatencyMs`, `sendsFailedSinceBoot` |
+| `transport.reconnectCount`, `transport.httpFallbackSeconds`, `transport.lastReceiptLatencyMs`, `transport.sendsFailedSinceBoot` | `TransportStats` |
 | `process.deviceUptimeS` | `SystemClock.elapsedRealtime() / 1000` |
 | `process.serviceUptimeS` | since `onCreate` |
 | `process.serviceRestartCount` | `BootCounters` |
@@ -612,7 +611,7 @@ Every drill is logged in the repository under `docs/soak/<date>.md` with the obs
 - Heartbeats are HTTP only; the socket carries locations only.
 - Enrollment happens after provisioning (section 14.1 order); the in-app scanner works with Red-Nose as the launcher, the system camera is not reachable.
 - The heartbeat telemetry `process` group carries `systemApp` and `rootAvailable` in place of `deviceOwnerMode` (section 8, contracts 4.2).
-- No beacon role: debug mode is always available on the phone; the heartbeat's typed `health` core is filled from the phone's own probes and everything else rides in `debug` for the panel to show verbatim (section 8).
+- The API knows Red-Nose only as a key: debug mode is always available on the phone; the heartbeat's typed `health` core is filled from the phone's own probes and everything else rides in `debug` for the panel to show verbatim (section 8).
 - Hub invocations use the Java client's `Completable` overload and pass the payload as an object (7.4).
 - QR scanning is the Google Play services code scanner (`play-services-code-scanner`, a full-screen system activity behind `NativeRedNose.scanQrCode`, section 9.1): the phone keeps GMS, the app never opens the camera, no CAMERA permission is declared or granted, and `MainActivity.onCreate` warms the scanner module through `ModuleInstallClient`. `react-native-vision-camera` was removed with `react-native-nitro-image` and `react-native-nitro-modules`; vision-camera 5 has no Android code scanner, and vision-camera 4 or an ML Kit frame-processor would each mean a camera pipeline the app does not need.
 

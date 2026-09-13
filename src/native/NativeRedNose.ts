@@ -11,7 +11,6 @@ export type Enrollment = {
   ingestChannel: string;
   beaconId: number;
   name: string;
-  role: 'beacon' | 'admin';
   key: string;
 };
 
@@ -29,7 +28,6 @@ export type LatestFix = {
 export type EnrollmentPublic = {
   beaconId: number;
   name: string;
-  role: 'beacon' | 'admin';
   keyPrefix: string;
   apiBaseUrl: string;
   hubUrl: string;
@@ -39,54 +37,58 @@ export type EnrollmentPublic = {
 
 export type Heartbeat = {
   sentAt: string;
-  power: {
+  health: {
     batteryPercent: number | null;
-    charging: boolean | null;
-    batteryTempC: number | null;
-    thermalStatus: string | null;
-  } | null;
-  radio: {
-    networkType: string | null;
-    signalDbm: number | null;
-    signalLevel: number | null;
-    airplaneMode: boolean | null;
-    connected: boolean | null;
-  } | null;
-  gps: {
-    provider: string | null;
-    satellitesUsed: number | null;
-    satellitesInView: number | null;
-    lastFixAccuracyM: number | null;
     lastFixAgeS: number | null;
-    fixesLastMinute: number | null;
-    permission: {
-      foreground: boolean | null;
-      background: boolean | null;
-      precise: boolean | null;
-    } | null;
-  } | null;
-  transport: {
     socketState: string | null;
-    reconnectCount: number | null;
-    httpFallbackSeconds: number | null;
-    lastReceiptLatencyMs: number | null;
-    sendsFailedSinceBoot: number | null;
   } | null;
-  process: {
-    deviceUptimeS: number | null;
-    serviceUptimeS: number | null;
-    serviceRestartCount: number | null;
-    memoryPressure: string | null;
-    batteryOptimizationExempt: boolean | null;
-    notificationPermission: boolean | null;
-    systemApp: boolean | null;
-    rootAvailable: boolean | null;
-  } | null;
-  identity: {
-    deviceModel: string | null;
-    androidVersion: string | null;
-    appVersion: string | null;
-    clockSkewMs: number | null;
+  debug: {
+    power: {
+      charging: boolean | null;
+      batteryTempC: number | null;
+      thermalStatus: string | null;
+    } | null;
+    radio: {
+      networkType: string | null;
+      signalDbm: number | null;
+      signalLevel: number | null;
+      airplaneMode: boolean | null;
+      connected: boolean | null;
+    } | null;
+    gps: {
+      provider: string | null;
+      satellitesUsed: number | null;
+      satellitesInView: number | null;
+      lastFixAccuracyM: number | null;
+      fixesLastMinute: number | null;
+      permission: {
+        foreground: boolean | null;
+        background: boolean | null;
+        precise: boolean | null;
+      } | null;
+    } | null;
+    transport: {
+      reconnectCount: number | null;
+      httpFallbackSeconds: number | null;
+      lastReceiptLatencyMs: number | null;
+      sendsFailedSinceBoot: number | null;
+    } | null;
+    process: {
+      deviceUptimeS: number | null;
+      serviceUptimeS: number | null;
+      serviceRestartCount: number | null;
+      memoryPressure: string | null;
+      batteryOptimizationExempt: boolean | null;
+      notificationPermission: boolean | null;
+      systemApp: boolean | null;
+      rootAvailable: boolean | null;
+    } | null;
+    identity: {
+      deviceModel: string | null;
+      androidVersion: string | null;
+      appVersion: string | null;
+      clockSkewMs: number | null;
+    } | null;
   } | null;
 };
 

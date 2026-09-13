@@ -46,20 +46,20 @@ export function ProvisioningScreen(props: { state: ServiceState }) {
 
       <View style={styles.card}>
         <Text style={styles.subtitle}>identity</Text>
-        <KV label="deviceModel" value={t.identity?.deviceModel} />
-        <KV label="androidVersion" value={t.identity?.androidVersion} />
-        <KV label="appVersion" value={t.identity?.appVersion ?? props.state.appVersion} />
+        <KV label="deviceModel" value={t.debug?.identity?.deviceModel} />
+        <KV label="androidVersion" value={t.debug?.identity?.androidVersion} />
+        <KV label="appVersion" value={t.debug?.identity?.appVersion ?? props.state.appVersion} />
       </View>
 
       <View style={styles.card}>
         <Text style={styles.subtitle}>process</Text>
-        <KV label="systemApp" value={t.process?.systemApp} />
-        <KV label="rootAvailable" value={t.process?.rootAvailable} />
-        <KV label="batteryOptimizationExempt" value={t.process?.batteryOptimizationExempt} />
-        <KV label="notificationPermission" value={t.process?.notificationPermission} />
-        <KV label="serviceRestartCount" value={t.process?.serviceRestartCount} />
-        <KV label="serviceUptimeS" value={t.process?.serviceUptimeS} />
-        <KV label="deviceUptimeS" value={t.process?.deviceUptimeS} />
+        <KV label="systemApp" value={t.debug?.process?.systemApp} />
+        <KV label="rootAvailable" value={t.debug?.process?.rootAvailable} />
+        <KV label="batteryOptimizationExempt" value={t.debug?.process?.batteryOptimizationExempt} />
+        <KV label="notificationPermission" value={t.debug?.process?.notificationPermission} />
+        <KV label="serviceRestartCount" value={t.debug?.process?.serviceRestartCount} />
+        <KV label="serviceUptimeS" value={t.debug?.process?.serviceUptimeS} />
+        <KV label="deviceUptimeS" value={t.debug?.process?.deviceUptimeS} />
       </View>
     </ScrollView>
   );

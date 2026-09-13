@@ -64,15 +64,11 @@ describe('heartbeat.schema.json', () => {
     expect(ok).toBe(true);
   });
 
-  test('accepts a body with every group null', () => {
+  test('accepts a body with health and debug both null', () => {
     const body = {
       sentAt: '2026-12-22T01:31:07.412Z',
-      power: null,
-      radio: null,
-      gps: null,
-      transport: null,
-      process: null,
-      identity: null,
+      health: null,
+      debug: null,
     };
     expect(validate(body)).toBe(true);
   });
@@ -82,10 +78,10 @@ describe('heartbeat.schema.json', () => {
     expect(validate(body)).toBe(false);
   });
 
-  test('rejects the wrong type on a leaf', () => {
+  test('rejects the wrong type on a health leaf', () => {
     const body = {
       ...heartbeatFixture,
-      power: { ...heartbeatFixture.power, batteryPercent: 'high' },
+      health: { ...heartbeatFixture.health, batteryPercent: 'high' },
     };
     expect(validate(body)).toBe(false);
   });

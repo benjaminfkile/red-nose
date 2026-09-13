@@ -8,9 +8,14 @@ export type SoakBeacon = {
   name: string;
   lastHeartbeatAt: string | null;
   telemetry: {
-    transport?: { socketState?: string | null } | null;
-    process?: { serviceRestartCount?: number | null } | null;
-    power?: { batteryPercent?: number | null; charging?: boolean | null } | null;
+    health?: {
+      batteryPercent?: number | null;
+      socketState?: string | null;
+    } | null;
+    debug?: {
+      process?: { serviceRestartCount?: number | null } | null;
+      power?: { charging?: boolean | null } | null;
+    } | null;
   } | null;
 };
 
@@ -52,10 +57,10 @@ function isoZ(d: Date): string {
 }
 
 export function formatCsvRow(observedAt: Date, b: SoakBeacon): string {
-  const socketState = b.telemetry?.transport?.socketState ?? null;
-  const restart = b.telemetry?.process?.serviceRestartCount ?? null;
-  const battery = b.telemetry?.power?.batteryPercent ?? null;
-  const charging = b.telemetry?.power?.charging ?? null;
+  const socketState = b.telemetry?.health?.socketState ?? null;
+  const restart = b.telemetry?.debug?.process?.serviceRestartCount ?? null;
+  const battery = b.telemetry?.health?.batteryPercent ?? null;
+  const charging = b.telemetry?.debug?.power?.charging ?? null;
   return [
     csvField(isoZ(observedAt)),
     csvField(b.id),
