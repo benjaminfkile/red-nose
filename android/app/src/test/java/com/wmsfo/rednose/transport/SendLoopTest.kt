@@ -6,6 +6,8 @@ import com.wmsfo.rednose.log.RingLog
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.async
+import kotlinx.coroutines.test.advanceTimeBy
+import kotlinx.coroutines.test.currentTime
 import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.yield
 import org.junit.After
@@ -307,6 +309,109 @@ class SendLoopTest {
         }
         assertTrue(hub.rejoins.isEmpty())
         assertTrue("hub not touched while reconnecting", hub.calls.isEmpty())
+    }
+
+    // R11 (task 395): fixes at 250 ms, HTTP window of 1 s.
+
+    @Test fun socket_up_four_fixes_go_over_hub_in_order() = runTest {
+        val state = FakeState().apply { socketState = "connected"; latestFix = fix(1) }
+        val hub = FakeHub()
+        val rest = FakeRest()
+        val loop = make(state, hub, rest)
+
+        loop.attempt()
+        state.latestFix = fix(2); loop.attempt()
+        state.latestFix = fix(3); loop.attempt()
+        state.latestFix = fix(4); loop.attempt()
+
+        assertEquals(listOf(1L, 2L, 3L, 4L), hub.calls.toList())
+        assertTrue("no HTTP posts while the socket is up", rest.calls.isEmpty())
+        assertEquals(4L, state.lastDeliveredSeqLocal)
+        assertEquals(0, state.attempt)
+    }
+
+    @Test fun http_second_send_waits_the_window() = runTest {
+        val state = FakeState().apply { socketState = "disconnected"; latestFix = fix(1) }
+        val hub = FakeHub()
+        val rest = FakeRest()
+        // Use the virtual clock so the window can be measured.
+        val loop = SendLoop(
+            state = state, stats = TransportStats(), hub = hub, rest = rest, log = log,
+            backoff = { 1L }, elapsedRealtimeMs = { currentTime },
+            fixIntervalMs = 250L, httpFallbackIntervalMs = 1_000L,
+        )
+
+        loop.attempt()
+        val afterFirst = currentTime
+        state.latestFix = fix(2)
+        loop.attempt()
+        val afterSecond = currentTime
+
+        assertEquals(listOf(1L, 2L), rest.calls.toList())
+        assertTrue("second HTTP send waited >= 1000 ms, was ${afterSecond - afterFirst}",
+            afterSecond - afterFirst >= 1_000L)
+    }
+
+    @Test fun http_window_carries_the_newest_fix_at_window_end() = runTest {
+        val state = FakeState().apply { socketState = "disconnected"; latestFix = fix(1) }
+        val hub = FakeHub()
+        val rest = FakeRest()
+        val loop = SendLoop(
+            state = state, stats = TransportStats(), hub = hub, rest = rest, log = log,
+            backoff = { 1L }, elapsedRealtimeMs = { currentTime },
+            fixIntervalMs = 250L, httpFallbackIntervalMs = 1_000L,
+        )
+
+        // First HTTP send at t=0 (no prior window).
+        loop.attempt()
+        assertEquals(listOf(1L), rest.calls.toList())
+
+        // A second attempt enters the window and delays; during the delay a
+        // stream of newer fixes replaces latestFix. When the window ends the
+        // newest fix goes out (contracts 9.2, red-nose.md 7.5).
+        state.latestFix = fix(2)
+        val running = async { loop.attempt() }
+        yield()
+        advanceTimeBy(250L); state.latestFix = fix(3)
+        advanceTimeBy(250L); state.latestFix = fix(4)
+        advanceTimeBy(250L); state.latestFix = fix(5)
+        advanceTimeBy(300L)
+        running.await()
+
+        assertEquals("HTTP window ended with the newest fix",
+            listOf(1L, 5L), rest.calls.toList())
+        assertEquals(5L, state.lastDeliveredSeqLocal)
+    }
+
+    @Test fun socket_up_during_window_takes_the_fix_over_the_hub() = runTest {
+        val state = FakeState().apply { socketState = "disconnected"; latestFix = fix(1) }
+        val hub = FakeHub()
+        val rest = FakeRest()
+        val loop = SendLoop(
+            state = state, stats = TransportStats(), hub = hub, rest = rest, log = log,
+            backoff = { 1L }, elapsedRealtimeMs = { currentTime },
+            fixIntervalMs = 250L, httpFallbackIntervalMs = 1_000L,
+        )
+
+        loop.attempt()  // first HTTP send at t=0
+        assertEquals(listOf(1L), rest.calls.toList())
+
+        // Kick off the second attempt inside the window, then flip the socket
+        // to connected halfway through.  When the window ends the loop re-decides
+        // and takes the hub with no additional HTTP post.
+        state.latestFix = fix(2)
+        val running = async { loop.attempt() }
+        yield()
+        advanceTimeBy(500L)
+        state.socketState = "connected"
+        advanceTimeBy(600L)
+        running.await()
+
+        assertEquals("HTTP unchanged after the socket connects",
+            listOf(1L), rest.calls.toList())
+        assertEquals("second send went over the hub",
+            listOf(2L), hub.calls.toList())
+        assertEquals(2L, state.lastDeliveredSeqLocal)
     }
 
     @Test fun sends_failed_since_boot_only_counts_when_liveEventId_is_set() = runTest {

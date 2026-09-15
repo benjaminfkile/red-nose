@@ -240,7 +240,9 @@ class BeaconService : Service(), SendLoop.State, HeartbeatLoop.State {
             override suspend fun sendToChannel(channel: String, fix: LatestFix): Boolean =
                 socketLoop?.sendToChannel(channel, fix) ?: false
             override fun requestRejoin() { socketLoop?.requestRejoin() }
-        }, rest = rest, log = ring, fixIntervalMs = BuildConfig.REDNOSE_FIX_INTERVAL_MS.toLong())
+        }, rest = rest, log = ring,
+            fixIntervalMs = BuildConfig.REDNOSE_FIX_INTERVAL_MS.toLong(),
+            httpFallbackIntervalMs = BuildConfig.REDNOSE_HTTP_FALLBACK_INTERVAL_MS.toLong())
         sendLoop = send
         send.start(scope)
         val loop = SocketLoop(e, stats, send, connectivity, ring)
