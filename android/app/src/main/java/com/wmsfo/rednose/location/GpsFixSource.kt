@@ -11,7 +11,7 @@ import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.SharedFlow
 import java.util.concurrent.atomic.AtomicLong
 
-// LocationManager GPS_PROVIDER at 1 Hz, chosen when the enrollment has
+// LocationManager GPS_PROVIDER at 250 ms, chosen when the enrollment has
 // gpsOnlyFallback = true (red-nose.md 6.1).
 class GpsFixSource(
     private val context: Context,
@@ -33,7 +33,7 @@ class GpsFixSource(
 
     @SuppressLint("MissingPermission")
     override fun start() {
-        manager.requestLocationUpdates(LocationManager.GPS_PROVIDER, 1000L, 0f, listener, looper)
+        manager.requestLocationUpdates(LocationManager.GPS_PROVIDER, 250L, 0f, listener, looper)
     }
 
     override fun stop() {

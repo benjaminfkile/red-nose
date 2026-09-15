@@ -6,6 +6,7 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.channels.Channel
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.selects.onTimeout
@@ -25,7 +26,8 @@ class SendLoop(
     private val log: RingLog,
     private val backoff: (Int) -> Long = { Backoff.delayMs(it).toLong() },
     private val elapsedRealtimeMs: () -> Long = { android.os.SystemClock.elapsedRealtime() },
-    private val fixIntervalMs: Long = 1_000L,
+    private val fixIntervalMs: Long = 250L,
+    private val httpFallbackIntervalMs: Long = 1_000L,
 ) {
     interface State {
         var latestFix: LatestFix?
@@ -74,6 +76,11 @@ class SendLoop(
     // delivered send.
     private var consecutiveHubRejections: Int = 0
 
+    // Contracts 9.2: while the socket is down an HTTP send starts no sooner than
+    // httpFallbackIntervalMs after the previous HTTP send started. Null before
+    // the first HTTP send.
+    private var lastHttpSendStartedAt: Long? = null
+
     fun kick() { kick.trySend(Unit) }
     fun retryNow() { retryNow.trySend(Unit) }
 
@@ -97,12 +104,32 @@ class SendLoop(
 
     /** Runs one attempt on the caller's coroutine; visible for tests. */
     suspend fun attempt() {
+        val fix0 = state.latestFix ?: return
+        if (fix0.seqLocal == state.lastDeliveredSeqLocal) return
+        if (state.inFlight) return
+
+        // Decide the door.  If HTTP and the window has not elapsed yet, wait the
+        // remainder as a plain delay (a kick during the wait only replaces
+        // latestFix, it does not shorten the wait) and then re-decide from the
+        // top: a socket that connected in the meantime takes the fix over the
+        // hub, with no window.
+        if (state.socketState != "connected") {
+            val started = lastHttpSendStartedAt
+            if (started != null) {
+                val remaining = httpFallbackIntervalMs - (elapsedRealtimeMs() - started)
+                if (remaining > 0L) delay(remaining)
+            }
+        }
+
+        // Re-read latestFix after any wait: a kick during the wait only replaces
+        // it (red-nose.md 7.5, contracts 9.2).
         val fix = state.latestFix ?: return
         if (fix.seqLocal == state.lastDeliveredSeqLocal) return
-        if (state.inFlight) return
+
         state.inFlight = true
-        val t0 = elapsedRealtimeMs()
         val overHub = state.socketState == "connected"
+        val t0 = elapsedRealtimeMs()
+        if (!overHub) lastHttpSendStartedAt = t0
         val outcome: Outcome = try {
             if (overHub) {
                 val ok = hub.sendToChannel(state.ingestChannel, fix)

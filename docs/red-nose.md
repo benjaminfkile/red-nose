@@ -59,8 +59,8 @@ red-nose/
       service/BootReceiver.kt          # BOOT_COMPLETED, runs in :beacon, reads the store, starts foreground
       service/BootCounters.kt          # serviceRestartCount, sendsFailedSinceBoot keyed by BOOT_COUNT
       location/FixSource.kt            # interface: start(), stop(), fixes: Flow<LatestFix>
-      location/FusedFixSource.kt       # FusedLocationProviderClient, 1 Hz, high accuracy
-      location/GpsFixSource.kt         # LocationManager GPS_PROVIDER, 1 Hz
+      location/FusedFixSource.kt       # FusedLocationProviderClient, 250 ms, high accuracy
+      location/GpsFixSource.kt         # LocationManager GPS_PROVIDER, 250 ms
       location/GnssStats.kt            # GnssStatus callback: satellites used and in view
       location/LatestFix.kt
       transport/HubClient.kt           # SignalR Java client wrapper
@@ -251,7 +251,7 @@ Notification: channel `beacon`, importance low, ongoing, not dismissible, text i
 
 ### 5.2 Wake locks and power
 
-- The service holds a `PARTIAL_WAKE_LOCK` for its whole life. Location updates at 1 Hz keep the radio awake anyway; the wake lock keeps the send loop scheduled during the gaps.
+- The service holds a `PARTIAL_WAKE_LOCK` for its whole life. Location updates every 250 ms keep the radio awake anyway; the wake lock keeps the send loop scheduled during the gaps.
 - Doze: provisioning puts the package on the device idle allowlist with root (`dumpsys deviceidle whitelist +com.wmsfo.rednose`), so Doze deferral never applies; the checklist shows the state.
 - Screen: the service never touches the screen. Provisioning (section 14) sets stay-awake-while-charging on the device so the notification stays visible.
 
@@ -282,9 +282,11 @@ There is no `WorkManager` worker and no exact alarm; the persistent process plus
 
 | Source | When | Request |
 |---|---|---|
-| `FusedFixSource` | default | `FusedLocationProviderClient.requestLocationUpdates(LocationRequest.Builder(PRIORITY_HIGH_ACCURACY, 1000).setMinUpdateIntervalMillis(1000).setWaitForAccurateLocation(false).build(), callback, looper)` |
-| `GpsFixSource` | `gpsOnlyFallback = true` | `LocationManager.requestLocationUpdates(GPS_PROVIDER, 1000L, 0f, listener, looper)` |
+| `FusedFixSource` | default | `FusedLocationProviderClient.requestLocationUpdates(LocationRequest.Builder(PRIORITY_HIGH_ACCURACY, 250).setMinUpdateIntervalMillis(250).setWaitForAccurateLocation(false).build(), callback, looper)` |
+| `GpsFixSource` | `gpsOnlyFallback = true` | `LocationManager.requestLocationUpdates(GPS_PROVIDER, 250L, 0f, listener, looper)` |
 | `ReplayFixSource` | replay running (section 11) | plays a route object at the chosen rate |
+
+The provider may deliver slower than the requested `REDNOSE_FIX_INTERVAL_MS` (many GNSS chips fix once a second); the service sends whatever rate the provider gives, and the true rate is visible in `gps.fixesLastMinute` (section 8).
 
 Switching sources stops the old one before starting the new one; the latest fix is kept across the switch.
 
@@ -356,11 +358,19 @@ The handler is registered with `com.google.gson.JsonElement::class.java` because
 
 ```kotlin
 suspend fun attempt() {
-    val fix = latestFix ?: return
-    if (fix.seqLocal == lastDeliveredSeqLocal || inFlight) return
+    val first = latestFix ?: return
+    if (first.seqLocal == lastDeliveredSeqLocal || inFlight) return
+    if (socketState != CONNECTED && lastHttpSendStartedAt != null) {
+        val remaining = REDNOSE_HTTP_FALLBACK_INTERVAL_MS - (elapsed - lastHttpSendStartedAt)
+        if (remaining > 0) delay(remaining)                 // a kick during the wait only replaces latestFix
+    }
+    val fix = latestFix ?: return                           // re-read; a fresh fix may have arrived
+    if (fix.seqLocal == lastDeliveredSeqLocal) return
     inFlight = true
+    val overHub = socketState == CONNECTED
     val t0 = SystemClock.elapsedRealtime()
-    val ok = if (socketState == CONNECTED)
+    if (!overHub) lastHttpSendStartedAt = t0
+    val ok = if (overHub)
         runCatching { withTimeout(10_000) { hub!!.invoke(Void::class.java, "SendToChannel", channel, "location", fix.toPayload()).await() } }.isSuccess
     else
         rest.postLocation(fix)                              // 2xx => true; 10 s timeout
@@ -371,6 +381,8 @@ suspend fun attempt() {
 ```
 
 `onSendFailed` logs the outcome (hub: the generic text and `seqLocal`; HTTP: `code` and `requestId`) and increments `sendsFailedSinceBoot` only while `lastHeartbeat.liveEventId != null`. A rejected hub invoke never falls back to HTTP while the socket is up. A fix that arrives during an in-flight send replaces `latestFix` and goes out when the attempt resolves. `httpFallbackSeconds` accrues while a fix is delivered over HTTP.
+
+Over the socket every fix goes out as soon as the previous send resolved, so the delivered rate is the provider's rate, up to four per second. Over HTTP a send starts no sooner than `REDNOSE_HTTP_FALLBACK_INTERVAL_MS` (1000 ms, section 15) after the previous HTTP send started; a fix that arrives inside the window only replaces `latestFix`, the wait itself is not shortened, and the newest fix goes out when the window ends. A socket that connects during the wait takes the fix over the hub with no window: after the delay the door is re-decided from the top. `lastHttpSendStartedAt` is stamped when the HTTP post starts (not when it resolves), so a slow REST call cannot compress the next window. The window is the only difference between the two doors; every other rule (the hub branch, the in-flight guard, the backoff after a failure, the coalescing of a fix that arrives mid-send, the three-rejections re-join, `sendsFailedSinceBoot`, `httpFallbackSeconds`, and every log line) is unchanged.
 
 Three consecutive `hub_rejected` outcomes while `socketState == CONNECTED` ask the socket loop to re-join the ingest channel once (the same path as `channelEvicted(auth_expired)`, contracts 9.2), for the case where membership was lost without an envelope reaching the client. The counter resets on any delivered send. If the re-join throws, the socket loop takes its close-or-failure branch (`socketState = RECONNECTING`, backoff) and the next attempts fall back to HTTP until the socket is `CONNECTED` again.
 
@@ -591,7 +603,7 @@ Runs on the real device against the dev API for at least 30 days before December
 | Kill from recents, `adb shell am force-stop` | service back within 60 s (persistent-app restart, or the `service.sh` root script) |
 | `kill -9` of the `:beacon` pid only, as root | service back within 15 s; the log records whether the platform or the `service.sh` script restarted it (section 5.3) |
 | Press HOME, open recents, swipe the app away | Red-Nose is back in front within 15 s (launcher re-assert) |
-| Cellular only, driving 1 h at highway speed | fixes delivered at 1 Hz with gaps only where the carrier has none; socket reconnects logged, HTTP fallback covering them |
+| Cellular only, driving 1 h at highway speed | fixes delivered at the provider's rate (up to 4 Hz) with gaps only where the carrier has none; socket reconnects logged, HTTP fallback covering them at most once per second |
 | Battery to 10 percent unplugged, then charged | no change in behaviour; battery telemetry correct |
 | Dev event set live with replay of the 2025 route | the dev site shows the tracker moving along the route |
 
@@ -608,7 +620,7 @@ Every drill is logged in the repository under `docs/soak/<date>.md` with the obs
 - The app never requests a permission and never opens a settings screen; provisioning grants everything and the checklist only reports.
 - Kiosk is "Red-Nose is the launcher, re-asserted by root, hiding its own bars"; screen pinning and lock task are not used. The bootloader stays unlocked and a factory reset from Settings stays possible; both are accepted.
 - OTA is blocked by the patched boot image, not by disabling updater packages (some cannot be disabled).
-- Fused provider at 1 Hz is the default source; GPS-only is a toggle, never automatic.
+- Fused provider is the default source (`REDNOSE_FIX_INTERVAL_MS = 250`, so the location request asks for a fix every 250 ms; the delivered rate is whatever the chip gives, up to 4 Hz); GPS-only is a toggle, never automatic.
 - A partial wake lock for the life of the service.
 - `READ_PHONE_STATE` is requested for signal telemetry and is optional.
 - Replay stops at the end of the route (no loop).
