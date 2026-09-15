@@ -179,7 +179,11 @@ class SendLoop(
                     else outcome.code
                 log.send("failed seq=${fix.seqLocal} door=${if (overHub) "hub" else "http"} code=${outcome.code}" +
                     (outcome.requestId?.let { " requestId=$it" } ?: ""))
-                if (overHub && outcome.code == "hub_rejected" && state.socketState == "connected") {
+                if (overHub && outcome.code == "hub_rejected" && state.socketState == "connected" &&
+                    state.liveEventId != null) {
+                    // Without a live event every hub send is rejected by design, so
+                    // rejections count toward a re-join only once the heartbeat has
+                    // named a live event (contracts 9.2).
                     // Contracts 9.2: an unannounced loss of channel membership shows
                     // up as repeated `hub_rejected` while socketState stays connected.
                     // Ask the socket loop to re-join once; if the re-join throws, the

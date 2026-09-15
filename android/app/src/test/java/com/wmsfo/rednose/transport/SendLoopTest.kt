@@ -249,6 +249,19 @@ class SendLoopTest {
         assertEquals(1, hub.rejoins.size)
     }
 
+    @Test fun hub_rejections_without_a_live_event_do_not_count_toward_rejoin() = runTest {
+        val state = FakeState().apply { latestFix = fix(1); socketState = "connected"; liveEventId = null }
+        val hub = FakeHub().apply { respond = { false } }
+        val rest = FakeRest()
+        val loop = make(state, hub, rest)
+        for (i in 1L..6L) { state.latestFix = fix(i); loop.attempt() }
+        assertTrue("no re-join while the heartbeat names no live event", hub.rejoins.isEmpty())
+        // Once a live event is named, three rejections ask for one re-join.
+        state.liveEventId = 7L
+        for (i in 7L..9L) { state.latestFix = fix(i); loop.attempt() }
+        assertEquals(1, hub.rejoins.size)
+    }
+
     @Test fun delivered_send_resets_the_rejoin_counter() = runTest {
         val state = FakeState().apply { latestFix = fix(1); socketState = "connected" }
         var reject = true

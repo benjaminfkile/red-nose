@@ -332,12 +332,13 @@ while (isActive) {
     val conn = HubClient.build(enrollment.hubUrl)          // WEBSOCKETS, shouldSkipNegotiate(true), keepAlive 15 s, timeout 30 s
     try {
         conn.on("ChannelEvent", router::onEnvelope, com.google.gson.JsonElement::class.java)  // Gson-typed, see below
-        conn.onClosed { cause -> closedSignal.trySend(cause) }
+        val closed = Channel<Throwable?>(CONFLATED); closedSignal = closed   // one close channel per connection
+        conn.onClosed { cause -> closed.trySend(cause) }
         withTimeout(10_000) { conn.start().await() }                                   // kotlinx-coroutines-rx3
         withTimeout(10_000) { conn.invoke(Void::class.java, "JoinPrivateChannel", enrollment.ingestChannel, enrollment.key).await() }
         attempt = 0; socketState = CONNECTED; hub = conn
         sendLoop.kick()                                     // send the current fix now
-        closedSignal.receive()                              // suspend until the connection closes
+        closed.receive()                                    // suspend until this connection closes
     } catch (e: Exception) {
         log.socket("join or start failed", e)               // a denied join: first retry waits 10 s (contracts 2.3 step 8)
         if (e.isJoinDenied()) delay(10_000)
@@ -347,6 +348,8 @@ while (isActive) {
     withTimeoutOrNull(wait) { connectivity.retryNow.receive() }   // sleep the backoff, or less if the network came back
 }
 ```
+
+The close channel is created per connection: the loop's own `conn.stop()` of a finished connection fires `onClosed` as well, and a channel shared across connections would hand that stale close to the next connection the moment it joined, closing it again in a loop.
 
 `onEnvelope` routes on `channel` and `event`: `joined` for the ingest channel confirms `CONNECTED`; `channelEvicted` with `auth_expired` re-invokes `JoinPrivateChannel` immediately and kicks the send loop; `service_removed` retries the join every 5 s; anything else is ignored. A join that throws after an eviction closes the connection and takes the failure branch. At most one `HubConnection` exists.
 
@@ -384,7 +387,7 @@ suspend fun attempt() {
 
 Over the socket every fix goes out as soon as the previous send resolved, so the delivered rate is the provider's rate, up to four per second. Over HTTP a send starts no sooner than `REDNOSE_HTTP_FALLBACK_INTERVAL_MS` (1000 ms, section 15) after the previous HTTP send started; a fix that arrives inside the window only replaces `latestFix`, the wait itself is not shortened, and the newest fix goes out when the window ends. A socket that connects during the wait takes the fix over the hub with no window: after the delay the door is re-decided from the top. `lastHttpSendStartedAt` is stamped when the HTTP post starts (not when it resolves), so a slow REST call cannot compress the next window. The window is the only difference between the two doors; every other rule (the hub branch, the in-flight guard, the backoff after a failure, the coalescing of a fix that arrives mid-send, the three-rejections re-join, `sendsFailedSinceBoot`, `httpFallbackSeconds`, and every log line) is unchanged.
 
-Three consecutive `hub_rejected` outcomes while `socketState == CONNECTED` ask the socket loop to re-join the ingest channel once (the same path as `channelEvicted(auth_expired)`, contracts 9.2), for the case where membership was lost without an envelope reaching the client. The counter resets on any delivered send. If the re-join throws, the socket loop takes its close-or-failure branch (`socketState = RECONNECTING`, backoff) and the next attempts fall back to HTTP until the socket is `CONNECTED` again.
+Three consecutive `hub_rejected` outcomes while `socketState == CONNECTED` and `lastHeartbeat.liveEventId != null` ask the socket loop to re-join the ingest channel once (without a live event every hub send is rejected by design and nothing counts) (the same path as `channelEvicted(auth_expired)`, contracts 9.2), for the case where membership was lost without an envelope reaching the client. The counter resets on any delivered send. If the re-join throws, the socket loop takes its close-or-failure branch (`socketState = RECONNECTING`, backoff) and the next attempts fall back to HTTP until the socket is `CONNECTED` again.
 
 ### 7.6 Heartbeat loop
 

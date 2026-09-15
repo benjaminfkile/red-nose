@@ -30,7 +30,10 @@ class SocketLoop(
 
     @Volatile private var connection: HubConnection? = null
     @Volatile private var attempt: Int = 0
-    private val closedSignal: Channel<Throwable?> = Channel(capacity = Channel.CONFLATED)
+    // One close channel per connection (red-nose.md 7.4): the loop's own stop()
+    // of a finished connection fires onClosed too, and a channel shared across
+    // connections would hand that stale close to the next one the moment it joined.
+    @Volatile private var closedSignal: Channel<Throwable?> = Channel(capacity = Channel.CONFLATED)
     private var job: Job? = null
 
     private val router = SocketEnvelopeRouter(
@@ -46,12 +49,14 @@ class SocketLoop(
             while (isActive) {
                 stats.socketState = if (attempt == 0) "connecting" else "reconnecting"
                 val conn = hubBuild(enrollment.hubUrl)
+                val closed = Channel<Throwable?>(capacity = Channel.CONFLATED)
+                closedSignal = closed
                 try {
                     // The Java SignalR client deserializes handler arguments with Gson;
                     // registering the kotlinx.serialization sealed JsonElement dropped
                     // every envelope silently.  Gson builds `com.google.gson.JsonElement`.
                     conn.on("ChannelEvent", router::onEnvelope, JsonElement::class.java)
-                    conn.onClosed { cause -> closedSignal.trySend(cause) }
+                    conn.onClosed { cause -> closed.trySend(cause) }
                     withTimeout(10_000) { conn.start().await() }
                     // The hub methods return void. The Completable overload completes on the
                     // server's completion message; the Single<T> overload never does (it cannot
@@ -64,7 +69,7 @@ class SocketLoop(
                     stats.socketState = "connected"
                     connection = conn
                     sendLoop.kick()
-                    val cause = closedSignal.receive()
+                    val cause = closed.receive()
                     log.socket("closed", cause)
                 } catch (e: Exception) {
                     log.socket("join or start failed", e)
