@@ -18,6 +18,7 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.channels.Channel
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.selects.onTimeout
@@ -38,6 +39,11 @@ class DeviceGuard(
     private val sweepMs: Long,
     private val onPermissionsRestored: () -> Unit = {},
     private val clockMs: () -> Long = System::currentTimeMillis,
+    // Some switches apply asynchronously (svc data enable): after the commands
+    // the item is read again every settlePollMs for up to settleMs before the
+    // attempt counts as a failure.
+    private val settleMs: Long = 2_000L,
+    private val settlePollMs: Long = 100L,
 ) {
     // The item names of red-nose.md 5.5, in the exact order they are walked.
     private val itemOrder: List<String> = listOf(
@@ -155,6 +161,11 @@ class DeviceGuard(
         if (inNeededState(item)) return
         val startedAtMs = clockMs()
         val results = runCommandsFor(item)
+        var waitedMs = 0L
+        while (!inNeededState(item) && waitedMs < settleMs) {
+            delay(settlePollMs)
+            waitedMs += settlePollMs
+        }
         if (inNeededState(item)) {
             counters[item] = (counters[item] ?: 0) + 1
             val took = clockMs() - startedAtMs

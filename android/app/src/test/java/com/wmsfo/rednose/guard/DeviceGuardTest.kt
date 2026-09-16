@@ -218,6 +218,35 @@ class DeviceGuardTest {
         assertEquals(2, warnLineCount("guard restore failed airplaneMode"))
     }
 
+    // ---- a switch that applies asynchronously still counts as a restore -------
+    @Test fun asynchronous_switch_counts_as_restored_within_the_settle_window() = runTest {
+        val state = FakeDeviceState().apply { mobileData = false }
+        var readsAfterCommand = -1
+        val slowState = object : DeviceState by state {
+            override fun mobileDataOn(): Boolean {
+                if (readsAfterCommand >= 0) {
+                    readsAfterCommand++
+                    if (readsAfterCommand >= 5) state.mobileData = true
+                }
+                return state.mobileData
+            }
+        }
+        val shell = object : RootShell {
+            override suspend fun run(command: String): RootResult {
+                if (command == "svc data enable") readsAfterCommand = 0
+                return RootResult(exitCode = 0, output = "")
+            }
+        }
+        val guard = DeviceGuard(
+            packageName = "com.wmsfo.rednose", state = slowState, shell = shell,
+            log = log, sweepMs = 5_000L,
+        )
+        guard.sweepOnce()
+        assertEquals(1, guard.stats().mobileDataRestores)
+        assertEquals(null, guard.stats().lastError)
+        assertEquals(0, warnLineCount("guard restore failed mobileData"))
+    }
+
     // ---- (e) timeout gives "timeout" ----------------------------------------
     @Test fun timeout_is_a_failure_with_timeout_text() = runTest {
         val state = FakeDeviceState().apply { location = false }
