@@ -26,5 +26,5 @@ rm -rf /data/system/package_cache/*
 ui_print "- Cleared the package manager parse cache (same versionCode reflash)"
 
 ui_print "- Installed RedNose.apk to /system/app/RedNose/"
-ui_print "- Installed service.sh (root watchdog + launcher re-assert)"
+ui_print "- Installed service.sh (root watchdog)"
 ui_print "- Reboot, then run provisioning/provision.sh once."

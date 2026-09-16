@@ -32,9 +32,7 @@ class AndroidDeviceState(private val context: Context) : DeviceState {
         return lm.isLocationEnabled
     }
 
-    override fun mobileDataOn(): Boolean = try {
-        Settings.Global.getInt(context.contentResolver, "mobile_data", 1) == 1
-    } catch (_: Throwable) { true }
+    override fun mobileDataOn(): Boolean = MobileData.isOn(context)
 
     override fun powerSaveMode(): Boolean {
         val pm = context.getSystemService(Context.POWER_SERVICE) as? PowerManager

@@ -106,12 +106,9 @@ class DeviceGuard(
         mobileDataObserver = object : ContentObserver(handler) {
             override fun onChange(selfChange: Boolean) { requestSweep() }
         }.also {
-            try {
-                cr.registerContentObserver(
-                    Settings.Global.getUriFor("mobile_data"),
-                    false, it,
-                )
-            } catch (_: Throwable) {}
+            for (uri in MobileData.observedUris()) {
+                try { cr.registerContentObserver(uri, false, it) } catch (_: Throwable) {}
+            }
         }
 
         receiver = object : BroadcastReceiver() {

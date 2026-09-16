@@ -282,12 +282,12 @@ The phone is an ordinary phone that anyone may use for other apps. Whatever the 
 |---|---|---|
 | Airplane mode | off: `Settings.Global.AIRPLANE_MODE_ON` is 0 | `cmd connectivity airplane-mode disable` |
 | Location | on: `LocationManager.isLocationEnabled` | `cmd location set-location-enabled true` |
-| Mobile data | on: `Settings.Global` `mobile_data` is 1 | `svc data enable` |
+| Mobile data | on: `TelephonyManager.isDataEnabled` for the default data subscription (the switch is kept per SIM in `Settings.Global` `mobile_data<subId>`, which is the fallback read; the plain `mobile_data` key can stay 1 while data is off) | `svc data enable` |
 | Battery saver | off: `PowerManager.isPowerSaveMode` is false (battery saver can switch GPS off while the screen is off) | `cmd power set-mode 0` |
 | Runtime permissions | granted: `checkSelfPermission` for `ACCESS_FINE_LOCATION`, `ACCESS_COARSE_LOCATION`, `ACCESS_BACKGROUND_LOCATION`, `POST_NOTIFICATIONS`, `READ_PHONE_STATE` | `pm grant com.wmsfo.rednose <permission>` for each missing one, then `appops set com.wmsfo.rednose FINE_LOCATION allow` and `COARSE_LOCATION allow` |
 | Doze allowlist | exempt: `PowerManager.isIgnoringBatteryOptimizations` | `dumpsys deviceidle whitelist +com.wmsfo.rednose` |
 
-**When it checks.** Immediately on every change the platform announces: a `ContentObserver` on `AIRPLANE_MODE_ON` and `mobile_data`, and a receiver for `LocationManager.MODE_CHANGED_ACTION` and `PowerManager.ACTION_POWER_SAVE_MODE_CHANGED`, all registered in `:beacon`. As a backstop for changes that announce nothing (a revoked permission, the Doze allowlist), a full sweep of every item runs once when the service is created and then every `REDNOSE_GUARD_SWEEP_MS` (5000). A check reads the system API only; a root command runs only when an item is in the wrong state.
+**When it checks.** Immediately on every change the platform announces: a `ContentObserver` on `AIRPLANE_MODE_ON`, `mobile_data`, and `mobile_data<subId>` of the default data subscription, and a receiver for `LocationManager.MODE_CHANGED_ACTION` and `PowerManager.ACTION_POWER_SAVE_MODE_CHANGED`, all registered in `:beacon`. As a backstop for changes that announce nothing (a revoked permission, the Doze allowlist), a full sweep of every item runs once when the service is created and then every `REDNOSE_GUARD_SWEEP_MS` (5000). A check reads the system API only; a root command runs only when an item is in the wrong state.
 
 **How it restores.** Root commands run on `RootShell`, a single background thread with a 5 s timeout per command, so the beacon dispatcher never blocks (7.1). After a command the guard reads the item again: back in the needed state is a restore; still wrong is a failure, retried on the next sweep, forever. Nothing gives up and nothing backs off beyond the sweep interval. Revoking a runtime permission kills the app's processes; the `service.sh` watchdog brings `:beacon` back (5.3), the guard's creation sweep regrants, and the fix source starts once the location grants are back: `startFixSource` runs only after the creation sweep, and a fix source whose start threw a `SecurityException` is started again after the next sweep that regrants.
 
@@ -545,7 +545,7 @@ Offered only when `replayAllowed` (the enrolled `apiBaseUrl` differs from `REDNO
 | System app | `FLAG_SYSTEM` set | the Magisk module |
 | Root available | `su -c id` answers `uid=0` | Magisk |
 | Airplane mode off | `Settings.Global.AIRPLANE_MODE_ON` is 0 | the guard (5.5) |
-| Mobile data on | `Settings.Global` `mobile_data` is 1 | the guard (5.5) |
+| Mobile data on | `TelephonyManager.isDataEnabled` (fallback `mobile_data<subId>`, 5.5) | the guard (5.5) |
 | Battery saver off | `PowerManager.isPowerSaveMode` is false | the guard (5.5) |
 | Service running | `BeaconService.isRunning` | automatic |
 

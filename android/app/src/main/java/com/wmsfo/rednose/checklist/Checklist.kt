@@ -10,6 +10,7 @@ import android.os.PowerManager
 import android.provider.Settings
 import com.google.android.gms.common.ConnectionResult
 import com.google.android.gms.common.GoogleApiAvailability
+import com.wmsfo.rednose.guard.MobileData
 import com.wmsfo.rednose.service.BeaconService
 import com.wmsfo.rednose.service.Checklist
 import java.util.concurrent.Executors
@@ -95,9 +96,7 @@ class ChecklistProbe(
         Settings.Global.getInt(context.contentResolver, Settings.Global.AIRPLANE_MODE_ON, 0) == 0
     } catch (_: Throwable) { false }
 
-    private fun mobileDataOn(): Boolean = try {
-        Settings.Global.getInt(context.contentResolver, "mobile_data", 1) == 1
-    } catch (_: Throwable) { false }
+    private fun mobileDataOn(): Boolean = MobileData.isOn(context)
 
     private fun batterySaverOff(): Boolean {
         val pm = context.getSystemService(Context.POWER_SERVICE) as PowerManager
