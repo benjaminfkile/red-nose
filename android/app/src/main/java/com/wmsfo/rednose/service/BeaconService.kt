@@ -245,7 +245,7 @@ class BeaconService : Service(), SendLoop.State, HeartbeatLoop.State {
             httpFallbackIntervalMs = BuildConfig.REDNOSE_HTTP_FALLBACK_INTERVAL_MS.toLong())
         sendLoop = send
         send.start(scope)
-        val loop = SocketLoop(e, stats, send, connectivity, ring)
+        val loop = SocketLoop(e, stats, send, connectivity.retryNow, ring)
         socketLoop = loop
         loop.start(scope)
     }
