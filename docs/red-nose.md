@@ -1,6 +1,6 @@
 # Red-Nose technical design
 
-Red-Nose is the WMSFO v2 beacon app: a React Native user interface over a native Kotlin foreground service, Android only. It runs as a persistent system app on a rooted (Magisk) phone; root is the tool for everything the platform would otherwise make hard: it keeps the service alive across kills and low memory, grants every permission, makes Red-Nose the launcher, and configures the device from the shell with no user taps. The app never asks the user for anything. The service owns GPS, the send loops, and telemetry; the JavaScript side owns the screens, enrollment, and debug mode. Every name, shape, path, and rule below is the one in the shared contracts (`contracts.md`); where this document restates a contract it does so for the engineer's convenience and the contract wins on any difference.
+Red-Nose is the WMSFO v2 beacon app: a React Native user interface over a native Kotlin foreground service, Android only. It runs as a persistent system app on a rooted (Magisk) phone; root is the tool for everything the platform would otherwise make hard: it keeps the service alive across kills and low memory, grants every permission, configures the device from the shell with no user taps, and lets the service switch back on anything the beacon needs that someone switches off. The phone stays an ordinary phone: the stock launcher, the status and navigation bars, and every other app work as shipped, and Red-Nose is one app among them. The app never asks the user for anything. The service owns GPS, the send loops, and telemetry; the JavaScript side owns the screens, enrollment, and debug mode. Every name, shape, path, and rule below is the one in the shared contracts (`contracts.md`); where this document restates a contract it does so for the engineer's convenience and the contract wins on any difference.
 
 ---
 
@@ -50,7 +50,7 @@ red-nose/
     app/src/main/aidl/com/wmsfo/rednose/ipc/IBeaconListener.aidl
     app/src/main/java/com/wmsfo/rednose/
       MainApplication.kt               # RN host in the UI process
-      MainActivity.kt                  # single-task, HOME-capable, rednose://enroll intent filter
+      MainActivity.kt                  # single-task, launcher icon, rednose://enroll intent filter
       bridge/RedNoseModule.kt          # the RN native module (UI process)
       bridge/RedNosePackage.kt
       bridge/ServiceBinder.kt          # bind/unbind to BeaconService over AIDL
@@ -80,11 +80,13 @@ red-nose/
       replay/RouteLoader.kt            # URL or content URI to a validated route object
       replay/ReplayFixSource.kt        # FixSource that plays a route
       checklist/Checklist.kt           # every first-run item, verified from system APIs
+      guard/DeviceGuard.kt             # watches the settings the beacon needs and switches them back on (section 5.5)
+      guard/RootShell.kt               # su -c on a background executor with a timeout
     app/src/main/res/xml/network_security_config.xml       # prod: cleartext off
     app/src/dev/res/xml/network_security_config.xml        # dev: cleartext allowed
   provisioning/
-    magisk-module/                     # module.prop, customize.sh, service.sh (root watchdog + launcher re-assert), system/app/RedNose/ tree
-    provision.sh                       # adb+root: pm grant, appops, deviceidle whitelist, settings, launcher, safe boot off
+    magisk-module/                     # module.prop, customize.sh, service.sh (root watchdog), system/app/RedNose/ tree
+    provision.sh                       # adb+root: pm grant, appops, deviceidle whitelist, settings, root policy, safe boot off
     DEVICE.md                          # the runbook for the phone we own (section 14.4)
   .github/workflows/android.yml
 ```
@@ -121,8 +123,8 @@ JavaScript dependencies: `react-native`, `@react-navigation/native` with the nat
 | Log ring buffer and log upload | Service | JS asks for it; the service holds the key and the file |
 | Replay | Service | JS supplies the source and rate; the service plays it |
 | Process survival | Platform and root | Persistent system app (low-memory-exempt, restarted by the platform), `START_STICKY`, the `:beacon` boot receiver, and a Magisk `service.sh` root script (section 5.3) |
-| Permissions, Doze allowlist, location mode, launcher, safe boot, OTA | Root provisioning | Granted and set from the shell at provisioning (section 14). The app requests nothing at runtime and opens no settings screen; the checklist only reports |
-| Hidden bars | The app | `MainActivity` runs immersive-sticky so the status and navigation bars stay hidden while it is in front |
+| Permissions, Doze allowlist, location mode, safe boot, OTA | Root provisioning | Granted and set from the shell at provisioning (section 14). The app requests nothing at runtime and opens no settings screen; the checklist only reports |
+| Keeping what the beacon needs switched on | Service (`DeviceGuard`) | Airplane mode off, location on, mobile data on, battery saver off, the runtime permission grants, the Doze allowlist: restored with root whenever someone changes them (section 5.5) |
 
 The service never calls into JS. The module binds to the service only while an Activity is resumed and unbinds on pause. A crash, freeze, or kill of the UI process changes nothing in the `:beacon` process; the UI reconnects on next launch and reads the current state.
 
@@ -264,13 +266,34 @@ Survival is the platform's job and root's, not a userspace watchdog's. Four laye
 | Persistent system app | `android:persistent="true"` on a `/system/app` package: the app's process is exempt from low-memory kills and the platform restarts it immediately if it dies |
 | `START_STICKY` | the foreground service asks the system to recreate it after a kill |
 | `BootReceiver` (`:beacon`) | at boot the receiver reads the store and starts the foreground service (section 5.1) |
-| Magisk `service.sh` | a root boot script that starts the service and, every 15 s, force-starts it (`am start-foreground-service`) if `pidof` shows the `:beacon` process gone, and re-asserts Red-Nose as the launcher if the HOME activity has changed; running as root outside the app, it is the guarantee the other three layers are measured against |
+| Magisk `service.sh` | a root boot script that starts the service and, every 15 s, force-starts it (`am start-foreground-service`) if `pidof` shows the `:beacon` process gone; running as root outside the app, it is the guarantee the other three layers are measured against. It never touches the launcher or any other setting |
 
 There is no `WorkManager` worker and no exact alarm; the persistent process plus the root script replace both. Whether the platform's persistent treatment extends to the secondary `:beacon` process or only to the main process is verified in the soak (section 17, the `kill -9` drill); either answer is acceptable because the root script restarts the process within 15 s regardless. `BeaconService.isRunning` (a static flag set in `onCreate`, cleared in `onDestroy`) is what the checklist reads.
 
 ### 5.4 Restart counters
 
 `BootCounters` keys two counters by the system `BOOT_COUNT` setting: `serviceRestartCount` (incremented in `onCreate` after the first start since boot) and `sendsFailedSinceBoot`. A new boot value resets both. Stored in plain `SharedPreferences` in the `:beacon` process.
+
+### 5.5 Device guard
+
+The phone is an ordinary phone that anyone may use for other apps. Whatever the beacon needs from the device, the service keeps switched on: when someone (or something) switches one of the items below off, `DeviceGuard` switches it back on with root, logs it, and counts it. There is no pause, no override, and no setting that disables the guard; it runs whenever the `:beacon` process runs, enrolled or not.
+
+| Item | Needed state, read from | Restored with (`su -c`) |
+|---|---|---|
+| Airplane mode | off: `Settings.Global.AIRPLANE_MODE_ON` is 0 | `cmd connectivity airplane-mode disable` |
+| Location | on: `LocationManager.isLocationEnabled` | `cmd location set-location-enabled true` |
+| Mobile data | on: `Settings.Global` `mobile_data` is 1 | `svc data enable` |
+| Battery saver | off: `PowerManager.isPowerSaveMode` is false (battery saver can switch GPS off while the screen is off) | `cmd power set-mode 0` |
+| Runtime permissions | granted: `checkSelfPermission` for `ACCESS_FINE_LOCATION`, `ACCESS_COARSE_LOCATION`, `ACCESS_BACKGROUND_LOCATION`, `POST_NOTIFICATIONS`, `READ_PHONE_STATE` | `pm grant com.wmsfo.rednose <permission>` for each missing one, then `appops set com.wmsfo.rednose FINE_LOCATION allow` and `COARSE_LOCATION allow` |
+| Doze allowlist | exempt: `PowerManager.isIgnoringBatteryOptimizations` | `dumpsys deviceidle whitelist +com.wmsfo.rednose` |
+
+**When it checks.** Immediately on every change the platform announces: a `ContentObserver` on `AIRPLANE_MODE_ON` and `mobile_data`, and a receiver for `LocationManager.MODE_CHANGED_ACTION` and `PowerManager.ACTION_POWER_SAVE_MODE_CHANGED`, all registered in `:beacon`. As a backstop for changes that announce nothing (a revoked permission, the Doze allowlist), a full sweep of every item runs once when the service is created and then every `REDNOSE_GUARD_SWEEP_MS` (5000). A check reads the system API only; a root command runs only when an item is in the wrong state.
+
+**How it restores.** Root commands run on `RootShell`, a single background thread with a 5 s timeout per command, so the beacon dispatcher never blocks (7.1). After a command the guard reads the item again: back in the needed state is a restore; still wrong is a failure, retried on the next sweep, forever. Nothing gives up and nothing backs off beyond the sweep interval. Revoking a runtime permission kills the app's processes; the `service.sh` watchdog brings `:beacon` back (5.3), the guard's creation sweep regrants, and the fix source starts once the location grants are back: `startFixSource` runs only after the creation sweep, and a fix source whose start threw a `SecurityException` is started again after the next sweep that regrants.
+
+**What it records.** Every restore writes one ring-log line at INFO, `guard restored <item> took=<ms>`, and every failure one line at WARN, `guard restore failed <item> err=<text>`, at most once per minute per item. `debug.guard` in the heartbeat (section 8) carries a restore counter per item since the service started, `lastRestoredItem`, `lastRestoredAt`, and `lastError`.
+
+**What it does not do.** It does not keep Red-Nose in front, hide the bars, disable the lock screen, or touch Wi-Fi, volume, the screen, or any app. It does not stop anyone from force-stopping the app (the watchdog restarts it within 15 s) or disabling it in Settings (a disabled system app does not run; that is accepted). A screen lock with a PIN, pattern, or password must never be set on the phone: before the first unlock after a boot the credential-encrypted store holding the enrollment is unreadable, so the service could not start until someone unlocks (a swipe-only lock screen is fine).
 
 ---
 
@@ -415,11 +438,11 @@ One `Json { encodeDefaults = true; explicitNulls = true; ignoreUnknownKeys = tru
 {
   "sentAt": "...",
   "health": { "batteryPercent": 87, "lastFixAgeS": 1, "socketState": "connected" },
-  "debug": { "power": {...}, "radio": {...}, "gps": {...}, "transport": {...}, "process": {...}, "identity": {...} }
+  "debug": { "power": {...}, "radio": {...}, "gps": {...}, "transport": {...}, "process": {...}, "identity": {...}, "guard": {...} }
 }
 ```
 
-`health` is the API's typed core: `batteryPercent` from `BatteryManager.BATTERY_PROPERTY_CAPACITY`, `lastFixAgeS` from `latestFix` (age from `elapsedRealtime` since the fix), and `socketState` from `TransportStats.socketState`. `debug` is everything else the phone knows, the six groups below verbatim (those three fields are not duplicated in the debug groups); the admin panel shows it as a JSON tree and never reads it, so a new leaf here is a one-line change in this file and nowhere else. Every value is nullable and a probe that fails leaves its group's fields null and logs once per minute.
+`health` is the API's typed core: `batteryPercent` from `BatteryManager.BATTERY_PROPERTY_CAPACITY`, `lastFixAgeS` from `latestFix` (age from `elapsedRealtime` since the fix), and `socketState` from `TransportStats.socketState`. `debug` is everything else the phone knows, the seven groups below verbatim (those three fields are not duplicated in the debug groups); the admin panel shows it as a JSON tree and never reads it, so a new leaf here is a one-line change in this file and nowhere else. Every value is nullable and a probe that fails leaves its group's fields null and logs once per minute.
 
 | Group and field (inside `debug`) | Android source |
 |---|---|
@@ -448,6 +471,8 @@ One `Json { encodeDefaults = true; explicitNulls = true; ignoreUnknownKeys = tru
 | `identity.androidVersion` | `Build.VERSION.RELEASE` |
 | `identity.appVersion` | `BuildConfig.VERSION_NAME` |
 | `identity.clockSkewMs` | from the last HTTP answer (contracts 9.2) |
+| `guard.airplaneModeRestores`, `guard.locationRestores`, `guard.mobileDataRestores`, `guard.batterySaverRestores`, `guard.permissionRestores`, `guard.dozeAllowlistRestores` | `DeviceGuard` counters since the service started (section 5.5) |
+| `guard.lastRestoredItem`, `guard.lastRestoredAt`, `guard.lastError` | `DeviceGuard`: the item names are `airplaneMode`, `location`, `mobileData`, `batterySaver`, `permissions`, `dozeAllowlist`; `lastError` is the text of the last failure line, null until one happens |
 | `sentAt` | wall clock at build |
 
 `ServiceState.telemetry` is the same body as it would be sent now, refreshed every second for the UI.
@@ -485,7 +510,7 @@ Always available from the status screen once enrolled; nothing on the API side g
 | Failure log | every failed send (with its door) and every failed heartbeat, with `code`, `requestId` or the generic hub text |
 | Log file | the ring log tail, an "upload" button (`POST /beacons/logs`), the upload result |
 | Replay | section 11 |
-| Provisioning | section 14: read-only verification of the system-app, root, launcher, and settings state; provisioning itself is done from the shell, not from buttons |
+| Provisioning | section 14: read-only verification of the system-app, root, and settings state, plus the `debug.guard` counters; provisioning itself is done from the shell, not from buttons |
 
 Nothing in debug mode changes what the service sends except replay and the GPS-only toggle, both of which are also available on the status screen's settings sheet.
 
@@ -505,7 +530,7 @@ Offered only when `replayAllowed` (the enrolled `apiBaseUrl` differs from `REDNO
 
 ## 13. First-run checklist
 
-`Checklist` verifies every item from system APIs on every state tick; the Status screen shows red for anything not satisfied. Provisioning (section 14) sets every item from the shell with root, so on a provisioned phone every row is green before enrollment. The fix path for any red row is the same: re-run `provision.sh`. Nothing is inferred; a green row means the API said so.
+`Checklist` verifies every item from system APIs on every state tick; the Status screen shows red for anything not satisfied. Provisioning (section 14) sets every item from the shell with root, so on a provisioned phone every row is green before enrollment. The rows the device guard owns (the grants, the Doze allowlist, location, airplane mode, mobile data, battery saver; 5.5) turn green again on their own within a sweep; a row that stays red means the guard's root command is failing (its WARN line in the log says why), and the fix path for that and for every other red row is the same: re-run `provision.sh`. Nothing is inferred; a green row means the API said so.
 
 | Item | Check | Set by |
 |---|---|---|
@@ -519,7 +544,9 @@ Offered only when `replayAllowed` (the enrolled `apiBaseUrl` differs from `REDNO
 | Phone state (signal telemetry) | `READ_PHONE_STATE` granted; optional, telemetry only | `pm grant` |
 | System app | `FLAG_SYSTEM` set | the Magisk module |
 | Root available | `su -c id` answers `uid=0` | Magisk |
-| Launcher | `resolveActivity(HOME)` is `MainActivity` | `cmd package set-home-activity`, re-asserted by `service.sh` |
+| Airplane mode off | `Settings.Global.AIRPLANE_MODE_ON` is 0 | the guard (5.5) |
+| Mobile data on | `Settings.Global` `mobile_data` is 1 | the guard (5.5) |
+| Battery saver off | `PowerManager.isPowerSaveMode` is false | the guard (5.5) |
 | Service running | `BeaconService.isRunning` | automatic |
 
 ---
@@ -545,16 +572,15 @@ The phone is rooted and Red-Nose is a persistent system app. There is no device 
 | Battery / Doze | `dumpsys deviceidle whitelist +com.wmsfo.rednose` |
 | Location mode | `settings put secure location_mode 3` |
 | Stay awake while charging | `settings put global stay_on_while_plugged_in 7` |
-| Launcher | `cmd package set-home-activity com.wmsfo.rednose/.MainActivity`; the `service.sh` script re-asserts it every 15 s (section 5.3) |
-| Bars | none; `MainActivity` hides the status and navigation bars itself with immersive-sticky mode. (`settings put global policy_control` was removed in Android 11 and does nothing on this phone.) |
-| Keyguard | `locksettings set-disabled true`, so a boot lands on the launcher with no swipe |
-| Root for the app | `magisk --sqlite "REPLACE INTO policies ..."` with the app uid and policy 2 (allow), so the checklist's `su -c id` probe never shows a Magisk prompt |
-| Immersive hint | `settings put secure immersive_mode_confirmations confirmed`, so the one-time "Viewing full screen" sheet never covers the launcher |
+| Launcher | none; the stock launcher stays the home screen and Red-Nose is an ordinary app in the app drawer |
+| Screen lock | none set by provisioning; never a PIN, pattern, or password (5.5: the enrollment is in credential-encrypted storage, unreadable before the first unlock after a boot) |
+| Root for the app | `magisk --sqlite "REPLACE INTO policies ..."` with the app uid and policy 2 (allow), so the guard's root commands (5.5) and the checklist's `su -c id` probe never show a Magisk prompt |
+| Permission auto-revoke | `appops set com.wmsfo.rednose AUTO_REVOKE_PERMISSIONS_IF_UNUSED ignore`, so the platform never removes the grants of an app nobody opens |
 | No safe boot | `settings put global safe_boot_disallowed 1` |
-| No uninstall | inherent to a `/system/app` package; the user can only disable it, which the launcher lockdown makes unreachable |
+| No uninstall | inherent to a `/system/app` package; the user can only disable it in Settings, which is accepted (5.5) |
 | OTA | blocked by the patched boot image: an OTA fails verification against the modified boot partition and the system stays as flashed. Updater packages are left alone (some are non-disableable on this phone) |
 
-What root does not buy and the design accepts: the bootloader stays unlocked (a Magisk-patched boot image cannot pass verified boot with the bootloader locked, so relocking bricks or boot-loops), which means a fastboot wipe is one cable away; a factory reset from Settings stays possible, but Settings is unreachable behind the launcher. Neither matters for a phone that is mounted, plugged in, and touched by nobody. There is no screen pinning and no lock task: without a device owner they show a dialog and exit on a key combination, which is worse than the launcher lockdown.
+What root does not buy and the design accepts: the bootloader stays unlocked (a Magisk-patched boot image cannot pass verified boot with the bootloader locked, so relocking bricks or boot-loops), which means a fastboot wipe is one cable away; Settings stays reachable, so a factory reset, disabling the app, or setting a PIN stays possible. None of them happens by accident on a phone mounted in the aircraft, and everything a casual change can break (airplane mode, location, mobile data, battery saver, the grants, the Doze allowlist) the guard switches back (5.5). There is no kiosk, no screen pinning, and no lock task.
 
 ### 14.3 The Magisk module
 
@@ -602,10 +628,12 @@ Runs on the real device against the dev API for at least 30 days before December
 |---|---|
 | Unattended, charging | heartbeat gap never exceeds 60 s over the whole soak; `serviceRestartCount` stays 0 between reboots |
 | Reboot | first heartbeat within 120 s of boot without touching the phone |
-| Airplane mode 10 min, then off | first delivered fix within 15 s of the network returning |
+| Airplane mode switched on from quick settings | off again within 5 s, `guard restored airplaneMode` in the log, `debug.guard.airplaneModeRestores` up by one, first delivered fix within 15 s of the network returning |
 | Kill from recents, `adb shell am force-stop` | service back within 60 s (persistent-app restart, or the `service.sh` root script) |
 | `kill -9` of the `:beacon` pid only, as root | service back within 15 s; the log records whether the platform or the `service.sh` script restarted it (section 5.3) |
-| Press HOME, open recents, swipe the app away | Red-Nose is back in front within 15 s (launcher re-assert) |
+| Location switched off; battery saver switched on; mobile data switched off (each from quick settings, one at a time) | each back in its needed state within 5 s, with its log line and counter |
+| Location permission set to "Don't allow" in Settings, app info | the processes restart (watchdog, within 15 s), the grant is back within 5 s of the restart, fixes are delivered again, `debug.guard.permissionRestores` up by one |
+| Use the phone for other apps (browser, maps, camera) for 10 min, then lock it | Red-Nose never takes the screen; heartbeats and fixes continue throughout |
 | Cellular only, driving 1 h at highway speed | fixes delivered at the provider's rate (up to 4 Hz) with gaps only where the carrier has none; socket reconnects logged, HTTP fallback covering them at most once per second |
 | Battery to 10 percent unplugged, then charged | no change in behaviour; battery telemetry correct |
 | Dev event set live with replay of the 2025 route | the dev site shows the tracker moving along the route |
@@ -617,18 +645,18 @@ Every drill is logged in the repository under `docs/soak/<date>.md` with the obs
 ## 18. Decisions made here
 
 - The service runs in its own process and communicates with the UI over AIDL only; the UI never holds the key after enrollment.
-- The phone is rooted (Magisk) and Red-Nose is a persistent system app under `/system/app`; that is the baseline for process survival, permission granting, and launcher lockdown, not a post-soak fallback. It requests no privileged permission, so there is no `/system/priv-app` install and no allowlist.
-- Device owner mode and DevicePolicyManager are not used; the launcher, permissions, settings, safe boot, and OTA blocking are done from the shell with root at provisioning (section 14).
+- The phone is rooted (Magisk) and Red-Nose is a persistent system app under `/system/app`; that is the baseline for process survival, permission granting, and restoring what the beacon needs, not a post-soak fallback. It requests no privileged permission, so there is no `/system/priv-app` install and no allowlist.
+- Device owner mode and DevicePolicyManager are not used; permissions, settings, safe boot, and OTA blocking are done from the shell with root at provisioning (section 14), and the service restores what the beacon needs with root at runtime (5.5).
 - Process survival is the platform's plus root's: the persistent system app and `START_STICKY`, with the Magisk `service.sh` root script as the guarantee; there is no WorkManager worker and no exact alarm.
 - The app never requests a permission and never opens a settings screen; provisioning grants everything and the checklist only reports.
-- Kiosk is "Red-Nose is the launcher, re-asserted by root, hiding its own bars"; screen pinning and lock task are not used. The bootloader stays unlocked and a factory reset from Settings stays possible; both are accepted.
+- No kiosk (2026-09-16): the phone stays usable for other apps; Red-Nose is not the launcher, does not hide the bars, and provisioning leaves the lock screen alone. The service's device guard switches back on whatever the beacon needs when someone switches it off (5.5), with no pause and no override. The bootloader stays unlocked and a factory reset from Settings stays possible; both are accepted.
 - OTA is blocked by the patched boot image, not by disabling updater packages (some cannot be disabled).
 - Fused provider is the default source (`REDNOSE_FIX_INTERVAL_MS = 250`, so the location request asks for a fix every 250 ms; the delivered rate is whatever the chip gives, up to 4 Hz); GPS-only is a toggle, never automatic.
 - A partial wake lock for the life of the service.
 - `READ_PHONE_STATE` is requested for signal telemetry and is optional.
 - Replay stops at the end of the route (no loop).
 - Heartbeats are HTTP only; the socket carries locations only.
-- Enrollment happens after provisioning (section 14.1 order); the in-app scanner works with Red-Nose as the launcher, the system camera is not reachable.
+- Enrollment happens after provisioning (section 14.1 order); the in-app scanner is the enrollment path, and the system camera can open a `rednose://enroll` link as well.
 - The heartbeat telemetry `process` group carries `systemApp` and `rootAvailable` in place of `deviceOwnerMode` (section 8, contracts 4.2).
 - The API knows Red-Nose only as a key: debug mode is always available on the phone; the heartbeat's typed `health` core is filled from the phone's own probes and everything else rides in `debug` for the panel to show verbatim (section 8).
 - Hub invocations use the Java client's `Completable` overload and pass the payload as an object (7.4).
