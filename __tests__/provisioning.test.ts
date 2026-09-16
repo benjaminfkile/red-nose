@@ -31,16 +31,17 @@ describe('provisioning/magisk-module tree', () => {
     expect(body).toMatch(/system\/app\/RedNose\/RedNose\.apk/);
   });
 
-  test('service.sh parses and implements the 15 s watchdog + launcher re-assert', () => {
+  test('service.sh parses and implements the 15 s watchdog without touching the launcher', () => {
     const script = path.join(MODULE_DIR, 'service.sh');
     parses(script);
     const body = fs.readFileSync(script, 'utf8');
-    // Section 5.3: pidof + am start-foreground-service + launcher re-assert on a loop.
+    // Section 5.3: pidof + am start-foreground-service on a 15 s loop.  The
+    // launcher re-assert is gone (red-nose.md 5.5, 2026-09-16: no kiosk).
     expect(body).toMatch(/pidof/);
     expect(body).toMatch(/am start-foreground-service/);
-    expect(body).toMatch(/set-home-activity/);
     expect(body).toMatch(/sleep\s+["']?15/);
     expect(body).toMatch(/com\.wmsfo\.rednose:beacon/);
+    expect(body).not.toMatch(/set-home-activity/);
   });
 
   test('system/app/RedNose/ tree exists as the APK drop point', () => {
@@ -91,10 +92,14 @@ describe('provisioning/provision.sh', () => {
     expect(body).toMatch(/settings put secure location_mode 3/);
     // Stay awake while charging (14.2 row 5).
     expect(body).toMatch(/settings put global stay_on_while_plugged_in 7/);
-    // Launcher (14.2 row 6).
-    expect(body).toMatch(/cmd package set-home-activity com\.wmsfo\.rednose\/\.MainActivity/);
+    // Permission auto-revoke off (14.2, added 2026-09-16 with no kiosk).
+    expect(body).toContain('AUTO_REVOKE_PERMISSIONS_IF_UNUSED');
     // Safe boot disallowed (14.2 row 9).
     expect(body).toMatch(/settings put global safe_boot_disallowed 1/);
+    // No launcher / keyguard / immersive rows (red-nose.md 5.5, 14.2).
+    expect(body).not.toMatch(/set-home-activity/);
+    expect(body).not.toMatch(/locksettings/);
+    expect(body).not.toMatch(/immersive_mode_confirmations/);
   });
 
   test('reads each value back and prints a final summary', () => {
@@ -104,5 +109,18 @@ describe('provisioning/provision.sh', () => {
     expect(body).toMatch(/failed:/);
     expect(body).toMatch(/settings get secure location_mode/);
     expect(body).toMatch(/dumpsys package/);
+    expect(body).toMatch(/appops get .*AUTO_REVOKE_PERMISSIONS_IF_UNUSED/);
+  });
+});
+
+describe('AndroidManifest.xml (red-nose.md 5.5: no kiosk)', () => {
+  const manifest = fs.readFileSync(
+    path.join(ROOT, 'android', 'app', 'src', 'main', 'AndroidManifest.xml'),
+    'utf8',
+  );
+
+  test('MAIN intent-filter carries LAUNCHER, no HOME category', () => {
+    expect(manifest).toContain('android.intent.category.LAUNCHER');
+    expect(manifest).not.toContain('android.intent.category.HOME');
   });
 });

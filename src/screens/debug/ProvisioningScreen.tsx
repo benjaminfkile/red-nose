@@ -19,7 +19,9 @@ const ROWS: Row[] = [
   { key: 'phoneState', label: 'Phone state' },
   { key: 'systemApp', label: 'System app' },
   { key: 'rootAvailable', label: 'Root available' },
-  { key: 'launcher', label: 'Launcher' },
+  { key: 'airplaneModeOff', label: 'Airplane mode off' },
+  { key: 'mobileDataOn', label: 'Mobile data on' },
+  { key: 'batterySaverOff', label: 'Battery saver off' },
   { key: 'serviceRunning', label: 'Service running' },
 ];
 
