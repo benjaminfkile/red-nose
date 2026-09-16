@@ -50,7 +50,7 @@ function Body({ body }: { body: Heartbeat }) {
         {debug == null ? (
           <Row label="(null)" value="-" />
         ) : (
-          (['power', 'radio', 'gps', 'transport', 'process', 'identity'] as const).map(name => (
+          (['power', 'radio', 'gps', 'transport', 'process', 'identity', 'guard'] as const).map(name => (
             <View key={name} style={styles.subGroup}>
               <Text style={styles.subGroupLabel}>{name}</Text>
               {debug[name] == null ? (

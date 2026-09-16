@@ -12,6 +12,9 @@ import android.os.RemoteCallbackList
 import android.os.SystemClock
 import com.wmsfo.rednose.BuildConfig
 import com.wmsfo.rednose.checklist.ChecklistProbe
+import com.wmsfo.rednose.guard.AndroidDeviceState
+import com.wmsfo.rednose.guard.DeviceGuard
+import com.wmsfo.rednose.guard.SuRootShell
 import com.wmsfo.rednose.ipc.IBeaconListener
 import com.wmsfo.rednose.ipc.IBeaconService
 import com.wmsfo.rednose.location.FixSource
@@ -71,6 +74,7 @@ class BeaconService : Service(), SendLoop.State, HeartbeatLoop.State {
     private lateinit var telemetry: TelemetryCollector
     private lateinit var connectivity: Connectivity
     private lateinit var checklist: ChecklistProbe
+    private lateinit var guard: DeviceGuard
     private lateinit var listeners: RemoteCallbackList<IBeaconListener>
     private lateinit var locationHandlerThread: HandlerThread
     private lateinit var locationHandler: Handler
@@ -124,6 +128,14 @@ class BeaconService : Service(), SendLoop.State, HeartbeatLoop.State {
         connectivity = Connectivity(this).also { it.start() }
         checklist = ChecklistProbe(this)
         listeners = RemoteCallbackList<IBeaconListener>()
+        guard = DeviceGuard(
+            packageName = packageName,
+            state = AndroidDeviceState(this),
+            shell = SuRootShell(),
+            log = ring,
+            sweepMs = BuildConfig.REDNOSE_GUARD_SWEEP_MS.toLong(),
+            onPermissionsRestored = ::onPermissionsRestored,
+        )
         telemetry = TelemetryCollector(
             context = this,
             log = ring,
@@ -132,14 +144,22 @@ class BeaconService : Service(), SendLoop.State, HeartbeatLoop.State {
             counters = counters,
             serviceStartedElapsedRealtime = serviceStartedElapsedRealtime,
             appVersion = BuildConfig.VERSION_NAME,
+            guardStats = { guard.stats() },
         )
         BeaconNotification.ensureChannel(this)
         acquireWakeLock()
         ring.addListener { line ->
             broadcast { it.onLog(line) }
         }
-        // If an enrollment is already stored, come up as a foreground service.
-        store.load()?.let { onEnrollmentAvailable(it) }
+        // Register the guard's observers so a settings change wakes a sweep.
+        guard.start(this)
+        // The stored enrollment start awaits the creation sweep so the fix
+        // source only starts once the location grants are back (red-nose.md 5.5).
+        scope.launch {
+            guard.sweepOnce()
+            store.load()?.let { onEnrollmentAvailable(it) }
+            guard.startLoop(scope)
+        }
         startStateEmitter()
     }
 
@@ -180,6 +200,7 @@ class BeaconService : Service(), SendLoop.State, HeartbeatLoop.State {
         isRunning = false
         stateEmitter?.cancel()
         stopAllLoops()
+        guard.stop()
         connectivity.stop()
         gnss.stop()
         locationHandlerThread.quitSafely()
@@ -220,13 +241,35 @@ class BeaconService : Service(), SendLoop.State, HeartbeatLoop.State {
             else FusedFixSource(this, locationHandler.looper)
         stopFixSource()
         fixSource = src
-        src.start()
+        try {
+            src.start()
+        } catch (t: SecurityException) {
+            // Keep the source as the pending one; onPermissionsRestored will
+            // call startFixSource again after the guard regrants (5.5).
+            ring.warn("fix source start failed err=${t.javaClass.simpleName}:${t.message}")
+        }
         scope.launch {
             src.fixes.collect { fix ->
                 latestFix = fix
                 telemetry.onFix(fix, src.provider)
                 sendLoop?.kick()
             }
+        }
+    }
+
+    // Runs on the beacon dispatcher after DeviceGuard restores the permissions
+    // (red-nose.md 5.5): restart the GnssStats callback (fine location was
+    // revoked with the app), and, when an enrollment exists and no replay is
+    // running, start the fix source again.
+    private fun onPermissionsRestored() {
+        scope.launch {
+            try { gnss.stop() } catch (_: Throwable) {}
+            try { gnss.start() } catch (t: SecurityException) {
+                ring.warn("gnss start failed err=${t.javaClass.simpleName}:${t.message}")
+            }
+            val e = enrollment ?: return@launch
+            if (replay != null) return@launch
+            startFixSource(e)
         }
     }
 
