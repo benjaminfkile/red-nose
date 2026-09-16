@@ -148,7 +148,7 @@ class DeviceGuard(
         mobileDataRestores = counters[ITEM_MOBILE_DATA] ?: 0,
         batterySaverRestores = counters[ITEM_BATTERY_SAVER] ?: 0,
         permissionRestores = counters[ITEM_PERMISSIONS] ?: 0,
-        dozeAllowlistRestores = counters[ITEM_DOZE_ALLOWLIST],
+        dozeAllowlistRestores = counters[ITEM_DOZE_ALLOWLIST] ?: 0,
         lastRestoredItem = lastRestoredItem,
         lastRestoredAt = lastRestoredAt,
         lastError = lastError,

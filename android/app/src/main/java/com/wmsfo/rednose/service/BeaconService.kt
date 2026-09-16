@@ -124,7 +124,12 @@ class BeaconService : Service(), SendLoop.State, HeartbeatLoop.State {
         rest = RestClient()
         locationHandlerThread = HandlerThread("beacon-loc").also { it.start() }
         locationHandler = Handler(locationHandlerThread.looper)
-        gnss = GnssStats(this, locationHandler).also { it.start() }
+        gnss = GnssStats(this, locationHandler)
+        // A revoked location grant makes this throw; the guard regrants and
+        // onPermissionsRestored starts it again (red-nose.md 5.5).
+        try { gnss.start() } catch (t: SecurityException) {
+            ring.warn("gnss start failed err=${t.javaClass.simpleName}:${t.message}")
+        }
         connectivity = Connectivity(this).also { it.start() }
         checklist = ChecklistProbe(this)
         listeners = RemoteCallbackList<IBeaconListener>()

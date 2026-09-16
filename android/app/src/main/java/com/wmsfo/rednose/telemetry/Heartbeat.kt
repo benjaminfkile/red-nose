@@ -99,7 +99,7 @@ data class GuardGroup(
     val mobileDataRestores: Int = 0,
     val batterySaverRestores: Int = 0,
     val permissionRestores: Int = 0,
-    val dozeAllowlistRestores: Int? = null,
+    val dozeAllowlistRestores: Int = 0,
     val lastRestoredItem: String? = null,
     val lastRestoredAt: String? = null,
     val lastError: String? = null,

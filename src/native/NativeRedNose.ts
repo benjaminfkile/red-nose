@@ -96,7 +96,7 @@ export type Heartbeat = {
       mobileDataRestores: number;
       batterySaverRestores: number;
       permissionRestores: number;
-      dozeAllowlistRestores: number | null;
+      dozeAllowlistRestores: number;
       lastRestoredItem: string | null;
       lastRestoredAt: string | null;
       lastError: string | null;
