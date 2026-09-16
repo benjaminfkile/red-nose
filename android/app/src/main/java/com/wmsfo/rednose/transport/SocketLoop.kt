@@ -1,7 +1,5 @@
 package com.wmsfo.rednose.transport
 
-import com.google.gson.JsonElement
-import com.microsoft.signalr.HubConnection
 import com.wmsfo.rednose.location.LatestFix
 import com.wmsfo.rednose.location.toPayload
 import com.wmsfo.rednose.log.RingLog
@@ -9,26 +7,30 @@ import com.wmsfo.rednose.store.Enrollment
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.channels.Channel
+import kotlinx.coroutines.channels.ReceiveChannel
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.rx3.await
 import kotlinx.coroutines.withTimeout
 import kotlinx.coroutines.withTimeoutOrNull
+import kotlin.coroutines.coroutineContext
 
-// The socket loop of red-nose.md 7.4 / contracts 9.2.  One HubConnection at a time.
-// Never blocks the dispatcher (await() from kotlinx-coroutines-rx3, never blockingAwait).
+// The socket loop of red-nose.md 7.4 / contracts 9.2.  One HubTransport at a time.
+// The loop reconnects indefinitely: every branch that ends an iteration (a close
+// received, a build or start or join failure, any Throwable escaping the try) is
+// caught inside the `while (isActive)` body so cancellation is the only way out.
 class SocketLoop(
     private val enrollment: Enrollment,
     private val stats: TransportStats,
     private val sendLoop: SendLoop,
-    private val connectivity: Connectivity,
+    private val retryNow: ReceiveChannel<Unit>,
     private val log: RingLog,
-    private val hubBuild: (String) -> HubConnection = HubClient::build,
+    private val hubBuild: (String) -> HubTransport = HubClient::build,
     private val backoff: (Int) -> Long = { Backoff.delayMs(it).toLong() },
 ) : SendLoop.HubSender {
 
-    @Volatile private var connection: HubConnection? = null
+    @Volatile private var connection: HubTransport? = null
     @Volatile private var attempt: Int = 0
     // One close channel per connection (red-nose.md 7.4): the loop's own stop()
     // of a finished connection fires onClosed too, and a channel shared across
@@ -48,22 +50,20 @@ class SocketLoop(
         job = scope.launch {
             while (isActive) {
                 stats.socketState = if (attempt == 0) "connecting" else "reconnecting"
-                val conn = hubBuild(enrollment.hubUrl)
+                var conn: HubTransport? = null
                 val closed = Channel<Throwable?>(capacity = Channel.CONFLATED)
                 closedSignal = closed
                 try {
-                    // The Java SignalR client deserializes handler arguments with Gson;
-                    // registering the kotlinx.serialization sealed JsonElement dropped
-                    // every envelope silently.  Gson builds `com.google.gson.JsonElement`.
-                    conn.on("ChannelEvent", router::onEnvelope, JsonElement::class.java)
+                    // hubBuild runs inside the try so a build failure (bad URL
+                    // or resource issue in the SignalR builder) does not kill
+                    // the loop.
+                    conn = hubBuild(enrollment.hubUrl)
+                    conn.onChannelEvent(router::onEnvelope)
                     conn.onClosed { cause -> closed.trySend(cause) }
-                    withTimeout(10_000) { conn.start().await() }
-                    // The hub methods return void. The Completable overload completes on the
-                    // server's completion message; the Single<T> overload never does (it cannot
-                    // emit a null result), so it would time out on every join and send.
+                    withTimeout(10_000) { conn.start() }
                     withTimeout(10_000) {
                         conn.invoke("JoinPrivateChannel",
-                            enrollment.ingestChannel, enrollment.key).await()
+                            enrollment.ingestChannel, enrollment.key)
                     }
                     attempt = 0
                     stats.socketState = "connected"
@@ -71,20 +71,28 @@ class SocketLoop(
                     sendLoop.kick()
                     val cause = closed.receive()
                     log.socket("closed", cause)
-                } catch (e: Exception) {
-                    log.socket("join or start failed", e)
-                    if (e.isJoinDenied()) {
+                } catch (t: Throwable) {
+                    // Catches Throwable so an Error or non-Exception Throwable
+                    // cannot escape and kill the coroutine (red-nose.md 7.4).
+                    // ensureActive rethrows only if the outer job itself is
+                    // being cancelled (stop() or scope teardown); a
+                    // TimeoutCancellationException from withTimeout leaves the
+                    // outer job active, so the loop falls through and backs off
+                    // like any other iteration failure.
+                    coroutineContext.ensureActive()
+                    log.socket("join or start failed", t)
+                    if (t is Exception && t.isJoinDenied()) {
                         delay(10_000)
                     }
                 } finally {
                     connection = null
-                    try { conn.stop() } catch (_: Throwable) {}
+                    try { conn?.stop() } catch (_: Throwable) {}
                 }
                 stats.socketState = "reconnecting"
                 stats.reconnectCount = stats.reconnectCount + 1
                 val wait = backoff(attempt)
                 attempt = attempt + 1
-                withTimeoutOrNull(wait) { connectivity.retryNow.receive() }
+                withTimeoutOrNull(wait) { retryNow.receive() }
             }
         }
     }
@@ -103,7 +111,7 @@ class SocketLoop(
         // pre-encoded string would arrive as a JSON string and fail the API's validation.
         return try {
             withTimeout(10_000) {
-                conn.invoke("SendToChannel", channel, "location", fix.toPayload()).await()
+                conn.invoke("SendToChannel", channel, "location", fix.toPayload())
             }
             true
         } catch (_: Exception) {
@@ -118,8 +126,8 @@ class SocketLoop(
     }
 
     // Re-invoke JoinPrivateChannel on the current connection. Fire-and-forget: the
-    // subscribe callbacks log the outcome and, on failure, drive the outer loop
-    // into its close-or-failure branch (reconnecting, backoff).
+    // callbacks log the outcome and, on failure, drive the outer loop into its
+    // close-or-failure branch (reconnecting, backoff).
     private fun rejoin() {
         stats.rejoinCount = stats.rejoinCount + 1
         val conn = connection
@@ -129,13 +137,14 @@ class SocketLoop(
             return
         }
         try {
-            conn.invoke("JoinPrivateChannel",
-                enrollment.ingestChannel, enrollment.key).subscribe(
-                {
+            conn.invokeFireAndForget(
+                method = "JoinPrivateChannel",
+                args = arrayOf(enrollment.ingestChannel, enrollment.key),
+                onSuccess = {
                     log.socket("rejoined")
                     sendLoop.kick()
                 },
-                { t ->
+                onError = { t ->
                     log.socket("rejoin failed", t)
                     closedSignal.trySend(t)
                 },
