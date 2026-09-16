@@ -41,6 +41,7 @@ class SocketLoop(
     private val router = SocketEnvelopeRouter(
         stats = stats,
         log = log,
+        ingestChannel = enrollment.ingestChannel,
         onAuthExpired = ::rejoin,
         onServiceRemoved = { closedSignal.trySend(RuntimeException("service_removed")) },
     )
@@ -65,12 +66,22 @@ class SocketLoop(
                         conn.invoke("JoinPrivateChannel",
                             enrollment.ingestChannel, enrollment.key)
                     }
+                    val succeededAttempt = attempt
                     attempt = 0
                     stats.socketState = "connected"
                     connection = conn
+                    log.socket(
+                        "connected channel=${enrollment.ingestChannel}" +
+                            " reconnectCount=${stats.reconnectCount}" +
+                            " attempt=$succeededAttempt"
+                    )
                     sendLoop.kick()
                     val cause = closed.receive()
-                    log.socket("closed", cause)
+                    log.socket(
+                        "closed; reconnecting channel=${enrollment.ingestChannel}" +
+                            " delayMs=${backoff(attempt)} attempt=$attempt",
+                        cause,
+                    )
                 } catch (t: Throwable) {
                     // Catches Throwable so an Error or non-Exception Throwable
                     // cannot escape and kill the coroutine (red-nose.md 7.4).
@@ -80,7 +91,7 @@ class SocketLoop(
                     // outer job active, so the loop falls through and backs off
                     // like any other iteration failure.
                     coroutineContext.ensureActive()
-                    log.socket("join or start failed", t)
+                    log.socket("join or start failed channel=${enrollment.ingestChannel}", t)
                     if (t is Exception && t.isJoinDenied()) {
                         delay(10_000)
                     }
@@ -132,7 +143,7 @@ class SocketLoop(
         stats.rejoinCount = stats.rejoinCount + 1
         val conn = connection
         if (conn == null) {
-            log.socket("rejoin failed no_connection")
+            log.socket("rejoin failed no_connection channel=${enrollment.ingestChannel}")
             closedSignal.trySend(RuntimeException("no_connection"))
             return
         }
@@ -141,16 +152,16 @@ class SocketLoop(
                 method = "JoinPrivateChannel",
                 args = arrayOf(enrollment.ingestChannel, enrollment.key),
                 onSuccess = {
-                    log.socket("rejoined")
+                    log.socket("rejoined channel=${enrollment.ingestChannel}")
                     sendLoop.kick()
                 },
                 onError = { t ->
-                    log.socket("rejoin failed", t)
+                    log.socket("rejoin failed channel=${enrollment.ingestChannel}", t)
                     closedSignal.trySend(t)
                 },
             )
         } catch (t: Throwable) {
-            log.socket("rejoin failed", t)
+            log.socket("rejoin failed channel=${enrollment.ingestChannel}", t)
             closedSignal.trySend(t)
         }
     }

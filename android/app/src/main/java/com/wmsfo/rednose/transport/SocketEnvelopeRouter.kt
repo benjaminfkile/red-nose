@@ -13,6 +13,7 @@ import com.wmsfo.rednose.log.RingLog
 class SocketEnvelopeRouter(
     private val stats: TransportStats,
     private val log: RingLog,
+    private val ingestChannel: String,
     private val onAuthExpired: () -> Unit,
     private val onServiceRemoved: () -> Unit,
 ) {
@@ -24,7 +25,7 @@ class SocketEnvelopeRouter(
             "channelEvicted" -> {
                 val reason = stringField(env, "reason")
                     ?: (env.get("data") as? JsonObject)?.let { stringField(it, "reason") }
-                log.socket("evicted ${reason ?: "unknown"}")
+                log.socket("evicted ${reason ?: "unknown"} channel=$ingestChannel")
                 when (reason) {
                     "auth_expired" -> onAuthExpired()
                     "service_removed" -> onServiceRemoved()

@@ -436,6 +436,119 @@ class SocketLoopTest {
         loop.stop()
     }
 
+    // --- Ring-log visibility: a successful connect logs one INFO line
+    // carrying the ingest channel, the current reconnectCount, and the
+    // attempt number that succeeded.  Distinguishes a first connect from a
+    // recovery.
+
+    @Test fun successful_connect_logs_channel_reconnect_count_and_attempt_at_info() = runTest {
+        val loop = buildLoop(hubBuild = { FakeHub() })
+        loop.start(this)
+        advanceUntilIdle()
+
+        val connectLines = log.recent(200).filter { it.contains("socket connected channel=") }
+        assertEquals("exactly one connect line for a first connect", 1, connectLines.size)
+        val line = connectLines.first()
+        assertTrue("connect line at INFO, got: $line", line.contains(" INFO "))
+        assertTrue("carries the ingest channel, got: $line",
+            line.contains("channel=${enrollment.ingestChannel}"))
+        assertTrue("carries reconnectCount=0, got: $line", line.contains("reconnectCount=0"))
+        assertTrue("carries attempt=0, got: $line", line.contains("attempt=0"))
+        loop.stop()
+    }
+
+    // --- Ring-log visibility: a reconnect is distinguishable from a first
+    // connect via reconnectCount.
+
+    @Test fun reconnect_is_distinguishable_from_first_connect_via_reconnect_count() = runTest {
+        val hubs = mutableListOf<FakeHub>()
+        val loop = buildLoop(hubBuild = { FakeHub().also { hubs.add(it) } })
+        loop.start(this)
+        advanceUntilIdle()
+        hubs[0].fireClose(RuntimeException("drop"))
+        advanceUntilIdle()
+
+        val connectLines = log.recent(200).filter { it.contains("socket connected channel=") }
+        assertEquals("one connect line per successful connect", 2, connectLines.size)
+        assertTrue("first connect names reconnectCount=0, got: ${connectLines[0]}",
+            connectLines[0].contains("reconnectCount=0"))
+        assertTrue("second connect names reconnectCount=1, got: ${connectLines[1]}",
+            connectLines[1].contains("reconnectCount=1"))
+        loop.stop()
+    }
+
+    // --- Ring-log visibility: a close logs one INFO line carrying the cause
+    // and the backoff delay about to be waited.
+
+    @Test fun close_logs_the_cause_and_the_scheduled_backoff_delay() = runTest {
+        val hubs = mutableListOf<FakeHub>()
+        val loop = buildLoop(
+            hubBuild = { FakeHub().also { hubs.add(it) } },
+            backoff = { 4321L },
+        )
+        loop.start(this)
+        advanceUntilIdle()
+        hubs[0].fireClose(RuntimeException("drop-cause"))
+        advanceUntilIdle()
+
+        val closeLines = log.recent(200).filter { it.contains("socket closed; reconnecting") }
+        assertEquals("exactly one close line per close", 1, closeLines.size)
+        val line = closeLines.first()
+        assertTrue("close line at INFO, got: $line", line.contains(" INFO "))
+        assertTrue("carries the ingest channel, got: $line",
+            line.contains("channel=${enrollment.ingestChannel}"))
+        assertTrue("carries delayMs=4321, got: $line", line.contains("delayMs=4321"))
+        assertTrue("carries attempt=0, got: $line", line.contains("attempt=0"))
+        assertTrue("carries the cause message, got: $line", line.contains("drop-cause"))
+        loop.stop()
+    }
+
+    // --- Confidentiality: the enrollment key never lands in any logged line.
+
+    @Test fun no_credential_value_appears_in_any_logged_line() = runTest {
+        val hubs = mutableListOf<FakeHub>()
+        val loop = buildLoop(
+            hubBuild = {
+                val hub = FakeHub()
+                if (hubs.isEmpty()) {
+                    hub.onInvoke = { method, _ ->
+                        if (method == "JoinPrivateChannel") {
+                            throw RuntimeException("join denied")
+                        }
+                    }
+                }
+                hubs.add(hub)
+                hub
+            },
+        )
+        loop.start(this)
+        // Time enough for one join failure, its backoff wait, and one successful
+        // reconnect: 1s (initial backoff) + 10s (join-denied hold) is plenty.
+        advanceTimeBy(30_000L)
+        advanceUntilIdle()
+        hubs.last().fireClose(RuntimeException("drop"))
+        advanceUntilIdle()
+
+        val leaked = log.recent(500).filter { it.contains(enrollment.key) }
+        assertTrue("no line contains the enrollment key, leaked=$leaked", leaked.isEmpty())
+        loop.stop()
+    }
+
+    // --- Quietness: a steady connected socket emits no repeated lines.
+
+    @Test fun steady_connected_socket_emits_no_repeated_lines() = runTest {
+        val loop = buildLoop(hubBuild = { FakeHub() })
+        loop.start(this)
+        advanceUntilIdle()
+
+        val before = log.recent(500).size
+        advanceTimeBy(60_000L)
+        advanceUntilIdle()
+        val after = log.recent(500).size
+        assertEquals("no additional log lines while connected", before, after)
+        loop.stop()
+    }
+
     // --- Guarantee: an ancestor scope cancel unwinds the loop even from
     // inside the try body, and no more reconnects occur. --------------------
 
