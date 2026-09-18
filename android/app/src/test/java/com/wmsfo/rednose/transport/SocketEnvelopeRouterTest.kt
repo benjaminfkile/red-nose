@@ -33,6 +33,7 @@ class SocketEnvelopeRouterTest {
     private fun router(): SocketEnvelopeRouter = SocketEnvelopeRouter(
         stats = stats,
         log = log,
+        ingestChannel = "wmsfo-api-dev:ingest",
         onAuthExpired = { rejoinCalls++ },
         onServiceRemoved = { serviceRemovedCalls++ },
     )

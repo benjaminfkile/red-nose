@@ -27,6 +27,7 @@ class TelemetryCollector(
     private val permissionProbe: PermissionProbe = PermissionProbe(context),
     private val processProbe: ProcessProbe =
         ProcessProbe(context, log, serviceStartedElapsedRealtime),
+    private val guardStats: () -> GuardGroup? = { null },
     private val clockMs: () -> Long = System::currentTimeMillis,
     private val elapsedMs: () -> Long = SystemClock::elapsedRealtime,
 ) {
@@ -66,6 +67,7 @@ class TelemetryCollector(
                 appVersion = appVersion,
                 clockSkewMs = clockSkewMs,
             ),
+            guard = guardStats(),
         )
         val health = HealthGroup(
             batteryPercent = power?.batteryPercent,

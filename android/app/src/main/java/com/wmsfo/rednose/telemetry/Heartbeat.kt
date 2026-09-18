@@ -27,6 +27,7 @@ data class DebugGroup(
     val transport: TransportGroup? = null,
     val process: ProcessGroup? = null,
     val identity: IdentityGroup? = null,
+    val guard: GuardGroup? = null,
 )
 
 @Serializable
@@ -89,4 +90,17 @@ data class IdentityGroup(
     val androidVersion: String? = null,
     val appVersion: String? = null,
     val clockSkewMs: Long? = null,
+)
+
+@Serializable
+data class GuardGroup(
+    val airplaneModeRestores: Int = 0,
+    val locationRestores: Int = 0,
+    val mobileDataRestores: Int = 0,
+    val batterySaverRestores: Int = 0,
+    val permissionRestores: Int = 0,
+    val dozeAllowlistRestores: Int = 0,
+    val lastRestoredItem: String? = null,
+    val lastRestoredAt: String? = null,
+    val lastError: String? = null,
 )

@@ -53,6 +53,8 @@ data class Checklist(
     val phoneState: Boolean = false,
     val systemApp: Boolean = false,
     val rootAvailable: Boolean = false,
-    val launcher: Boolean = false,
+    val airplaneModeOff: Boolean = false,
+    val mobileDataOn: Boolean = false,
+    val batterySaverOff: Boolean = false,
     val serviceRunning: Boolean = false,
 )

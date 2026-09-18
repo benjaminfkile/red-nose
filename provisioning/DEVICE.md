@@ -103,11 +103,15 @@ in the list.
   verified boot with the bootloader locked; relocking bricks or
   boot-loops). A fastboot wipe is one cable away, and that is accepted because the
   phone is mounted, plugged in, and touched by nobody.
-- A factory reset from Settings stays possible, but Settings is
-  unreachable behind the launcher lockdown.
-- No screen pinning, no lock task: without a device owner they show a
-  dialog and exit on a key combo, which is worse than the launcher
-  lockdown.
+- The phone is an ordinary phone: the stock launcher, the bars, Settings,
+  and every other app work as shipped. A factory reset, disabling the app,
+  or setting a PIN stays possible and is accepted. Whatever the beacon
+  needs (airplane mode off, location on, mobile data on, battery saver
+  off, the runtime grants, the Doze allowlist) Red-Nose switches back on
+  by itself within seconds (`docs/red-nose.md` 5.5).
+- Never set a PIN, pattern, or password screen lock: the enrollment lives
+  in credential-encrypted storage, so after a reboot the service could not
+  start until someone unlocks. A swipe lock screen is fine.
 - OTAs fail verification against the modified boot partition and the
   system stays as flashed. Updater packages are left alone (some are
   non-disableable on this phone).
@@ -122,9 +126,9 @@ in the list.
    `flags=[ SYSTEM ... PERSISTENT ...]` (Android 14 and earlier print a
    `persistent=true` line instead).
 6. Run `provisioning/provision.sh`. Every row must print `ok`.
-7. Enroll: the app opens the Google code scanner on its own; scan the QR
-   the admin panel shows for a newly minted beacon, or type the API base URL
-   and the `wbk_` key under "enter manually".
+7. Enroll: open Red-Nose from the app drawer; it opens the Google code
+   scanner on its own. Scan the QR the admin panel shows for a newly minted
+   beacon, or type the API base URL and the `wbk_` key under "enter manually".
 
 ## 11. Updating Red-Nose
 
@@ -145,17 +149,27 @@ adb shell dumpsys package com.wmsfo.rednose | grep -c MlKitInitProvider   # non-
 adb shell logcat -d -s AndroidRuntime:E ReactNativeJS:E rednose:*    # empty apart from the log tag's own lines
 adb shell dumpsys activity services com.wmsfo.rednose | grep isForeground   # isForeground=true
 adb shell cmd package resolve-activity --brief -c android.intent.category.HOME -a android.intent.action.MAIN | tail -n1
-                                                                 # com.wmsfo.rednose/.MainActivity
+                                                                 # the stock launcher, never com.wmsfo.rednose
 adb exec-out screencap -p > shot.png                             # what the screen shows
 bash provisioning/provision.sh                                   # every row ok
 ```
 
-An enrolled phone boots to the Status screen (beacon name, socket state,
-live event, delivered seq, receipt latency, heartbeat age, clock skew). Its
-"debug" button opens the Telemetry, Fix log, Socket log and Failure log
-tabs; "settings" holds the enrollment. An unenrolled phone boots into the
-code scanner; the X returns to the scan screen, which also offers manual
-entry.
+A phone boots to the stock launcher; the beacon service starts on its own
+without anyone opening the app. Opening Red-Nose on an enrolled phone shows
+the Status screen (beacon name, socket state, live event, delivered seq,
+receipt latency, heartbeat age, clock skew). Its "debug" button opens the
+Telemetry, Fix log, Socket log and Failure log tabs; "settings" holds the
+enrollment. On an unenrolled phone the app opens the code scanner; the X
+returns to the scan screen, which also offers manual entry.
+
+The device guard is checked by switching something off and watching it come
+back (the soak drills in `docs/red-nose.md` 17), for example:
+
+```
+adb shell su -c "cmd connectivity airplane-mode enable"; sleep 5
+adb shell su -c "cmd connectivity airplane-mode"                    # disabled
+adb shell su -c "grep 'guard restored' /data/data/com.wmsfo.rednose/files/rednose-a.log | tail -n 3"
+```
 
 The proof that the whole pipeline works is the CDN: `live/location.json`
 carries the phone's position within a second of the fix, with `seq`
@@ -174,13 +188,16 @@ Useful shell habits on this phone:
 
 ## 13. Where the phone stands
 
-Updated 2026-09-12.
+Updated 2026-09-16.
 
 - Stock 193-20-14, rooted, debloated, the Motorola updater hidden by a
   second Magisk module (`no-moto-ota`) so no system update can ever try to
   apply against the patched boot image. The restore kit is complete.
-- Red-Nose dev flavour installed as the `rednose` Magisk module, launcher
-  lockdown active, keyguard off, `provision.sh` green.
+- Red-Nose dev flavour installed as the `rednose` Magisk module,
+  `provision.sh` green. The home screen is the stock launcher
+  (`com.motorola.launcher3/com.android.launcher3.CustomizationPanelLauncher`);
+  if Android ever asks which home app to use, pick it, or set it with
+  `cmd package set-home-activity`.
 - Enrolled against the dev API as beacon `red-nose-DEV`; the socket joins
   the ingest channel and fixes are delivered over the hub (`socketState`
   `connected`, no HTTP fallback), heartbeats every 15 s; the dev CDN
@@ -192,6 +209,5 @@ Updated 2026-09-12.
   the URL is read only at a cold start of the Activity. Never `pm clear`
   the package: it revokes the runtime permission grants and the service
   crash-loops until `provision.sh` runs again.
-- To take the phone out of lockdown: `adb shell su -c "rm -rf
-  /data/adb/modules/rednose"` and reboot; the stock launcher returns.
-  Re-flash the module to put it back.
+- To remove Red-Nose from the phone: `adb shell su -c "rm -rf
+  /data/adb/modules/rednose"` and reboot. Re-flash the module to put it back.

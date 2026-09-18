@@ -47,11 +47,13 @@ the whole session so the CSV rows below cover the window.
 |---|---|---|---|---|---|
 | Unattended, charging | heartbeat gap never exceeds 60 s over the whole soak; `serviceRestartCount` stays 0 between reboots | | | | |
 | Reboot | first heartbeat within 120 s of boot without touching the phone | | | | |
-| Airplane mode 10 min, then off | first delivered fix within 15 s of the network returning | | | | |
+| Airplane mode switched on from quick settings | off again within 5 s, `guard restored airplaneMode` in the log, `debug.guard.airplaneModeRestores` up by one, first delivered fix within 15 s of the network returning | | | | |
 | Kill from recents, `adb shell am force-stop` | service back within 60 s (persistent-app restart, or the `service.d` root script) | | | | |
 | `kill -9` of the `:beacon` pid only, as root | service back within 15 s; the log records whether the platform or the `service.d` script restarted it (section 5.3) | | | | |
-| Press HOME, open recents, swipe the app away | Red-Nose is back in front within 15 s (launcher re-assert) | | | | |
-| Cellular only, driving 1 h at highway speed | fixes delivered at 1 Hz with gaps only where the carrier has none; socket reconnects logged, HTTP fallback covering them | | | | |
+| Location switched off; battery saver switched on; mobile data switched off (each from quick settings, one at a time) | each back in its needed state within 5 s, with its log line and counter | | | | |
+| Location permission set to "Don't allow" in Settings, app info | the processes restart (watchdog, within 15 s), the grant is back within 5 s of the restart, fixes are delivered again, `debug.guard.permissionRestores` up by one | | | | |
+| Use the phone for other apps (browser, maps, camera) for 10 min, then lock it | Red-Nose never takes the screen; heartbeats and fixes continue throughout | | | | |
+| Cellular only, driving 1 h at highway speed | fixes delivered at the provider's rate (up to 4 Hz) with gaps only where the carrier has none; socket reconnects logged, HTTP fallback covering them at most once per second | | | | |
 | Battery to 10 percent unplugged, then charged | no change in behaviour; battery telemetry correct | | | | |
 | Dev event set live with replay of the 2025 route | the dev site shows the tracker moving along the route | | | | |
 ```

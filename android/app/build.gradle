@@ -101,9 +101,11 @@ android {
         versionName semver
 
         buildConfigField "int", "REDNOSE_HEARTBEAT_INTERVAL_MS", "15000"
-        buildConfigField "int", "REDNOSE_FIX_INTERVAL_MS", "1000"
+        buildConfigField "int", "REDNOSE_FIX_INTERVAL_MS", "250"
+        buildConfigField "int", "REDNOSE_HTTP_FALLBACK_INTERVAL_MS", "1000"
         buildConfigField "String", "REDNOSE_BACKOFF_MS", '"1000,2000,3000,5000"'
         buildConfigField "int", "REDNOSE_LOG_RING_BYTES", "2000000"
+        buildConfigField "int", "REDNOSE_GUARD_SWEEP_MS", "5000"
         buildConfigField "String", "REDNOSE_PROD_API_BASE_URL", "\"${prop('REDNOSE_PROD_API_BASE_URL', 'https://prod-api.invalid')}\""
     }
     buildFeatures {

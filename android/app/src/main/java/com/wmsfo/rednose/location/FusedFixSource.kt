@@ -15,7 +15,7 @@ import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.SharedFlow
 import java.util.concurrent.atomic.AtomicLong
 
-// Default source: FusedLocationProviderClient at 1 Hz, high accuracy (red-nose.md 6.1).
+// Default source: FusedLocationProviderClient at 250 ms, high accuracy (red-nose.md 6.1).
 class FusedFixSource(
     private val context: Context,
     private val looper: Looper,
@@ -39,8 +39,8 @@ class FusedFixSource(
 
     @SuppressLint("MissingPermission")
     override fun start() {
-        val req = LocationRequest.Builder(Priority.PRIORITY_HIGH_ACCURACY, 1000L)
-            .setMinUpdateIntervalMillis(1000L)
+        val req = LocationRequest.Builder(Priority.PRIORITY_HIGH_ACCURACY, 250L)
+            .setMinUpdateIntervalMillis(250L)
             .setWaitForAccurateLocation(false)
             .build()
         client.requestLocationUpdates(req, callback, looper)

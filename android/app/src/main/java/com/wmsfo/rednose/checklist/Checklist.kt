@@ -3,13 +3,14 @@ package com.wmsfo.rednose.checklist
 import android.Manifest
 import android.app.NotificationManager
 import android.content.Context
-import android.content.Intent
 import android.content.pm.ApplicationInfo
 import android.content.pm.PackageManager
 import android.location.LocationManager
 import android.os.PowerManager
+import android.provider.Settings
 import com.google.android.gms.common.ConnectionResult
 import com.google.android.gms.common.GoogleApiAvailability
+import com.wmsfo.rednose.guard.MobileData
 import com.wmsfo.rednose.service.BeaconService
 import com.wmsfo.rednose.service.Checklist
 import java.util.concurrent.Executors
@@ -33,7 +34,6 @@ class ChecklistProbe(
     }
 
     fun read(): Checklist {
-        val pm = context.packageManager
         kickRootProbe()
         return Checklist(
             fineLocation = granted(Manifest.permission.ACCESS_FINE_LOCATION),
@@ -46,7 +46,9 @@ class ChecklistProbe(
             phoneState = granted(Manifest.permission.READ_PHONE_STATE),
             systemApp = systemApp(),
             rootAvailable = rootCache.get() == true,
-            launcher = launcher(pm),
+            airplaneModeOff = airplaneModeOff(),
+            mobileDataOn = mobileDataOn(),
+            batterySaverOff = batterySaverOff(),
             serviceRunning = BeaconService.isRunning,
         )
     }
@@ -90,12 +92,15 @@ class ChecklistProbe(
     private fun systemApp(): Boolean =
         (context.applicationInfo.flags and ApplicationInfo.FLAG_SYSTEM) != 0
 
-    private fun launcher(pm: PackageManager): Boolean {
-        val intent = Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_HOME)
-        val info = pm.resolveActivity(intent, PackageManager.MATCH_DEFAULT_ONLY) ?: return false
-        val ai = info.activityInfo ?: return false
-        // MainActivity is the launcher (red-nose.md 13, 14.2).
-        return ai.packageName == context.packageName && ai.name.endsWith(".MainActivity")
+    private fun airplaneModeOff(): Boolean = try {
+        Settings.Global.getInt(context.contentResolver, Settings.Global.AIRPLANE_MODE_ON, 0) == 0
+    } catch (_: Throwable) { false }
+
+    private fun mobileDataOn(): Boolean = MobileData.isOn(context)
+
+    private fun batterySaverOff(): Boolean {
+        val pm = context.getSystemService(Context.POWER_SERVICE) as PowerManager
+        return !pm.isPowerSaveMode
     }
 
     private fun kickRootProbe() {

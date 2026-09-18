@@ -12,7 +12,6 @@
 set -u
 
 PKG=com.wmsfo.rednose
-HOME_ACTIVITY=com.wmsfo.rednose/.MainActivity
 
 ADB_ARGS=()
 if [ "${1:-}" = "-s" ] && [ -n "${2:-}" ]; then
@@ -134,16 +133,6 @@ adb_su "settings put global stay_on_while_plugged_in 7" >/dev/null 2>&1 || true
 stay="$(adb_su_out "settings get global stay_on_while_plugged_in")"
 expect "stay_on_while_plugged_in == 7" "7" "$stay"
 
-section "launcher"
-adb_su "cmd package set-home-activity com.wmsfo.rednose/.MainActivity" >/dev/null 2>&1 || true
-home="$(adb_su_out "cmd package resolve-activity --brief -c android.intent.category.HOME -a android.intent.action.MAIN | tail -n1")"
-expect "HOME resolves to $HOME_ACTIVITY" "$HOME_ACTIVITY" "$home"
-
-section "keyguard off (boots straight to the launcher)"
-adb_su "locksettings set-disabled true" >/dev/null 2>&1 || true
-kg="$(adb_su_out "locksettings get-disabled")"
-expect "locksettings get-disabled == true" "true" "$kg"
-
 section "root for the app (Magisk policy, no on-screen prompt)"
 app_uid="$(adb_su_out "stat -c %u /data/data/$PKG")"
 if [ -n "$app_uid" ]; then
@@ -152,10 +141,10 @@ fi
 policy="$(adb_su_out "magisk --sqlite \\\"SELECT policy FROM policies WHERE uid=$app_uid\\\"")"
 expect "magisk su policy for uid $app_uid == allow" "policy=2" "$policy"
 
-section "immersive mode hint already confirmed"
-adb_su "settings put secure immersive_mode_confirmations confirmed" >/dev/null 2>&1 || true
-imm="$(adb_su_out "settings get secure immersive_mode_confirmations")"
-expect "immersive_mode_confirmations == confirmed" "confirmed" "$imm"
+section "permission auto-revoke off"
+adb_su "appops set $PKG AUTO_REVOKE_PERMISSIONS_IF_UNUSED ignore" >/dev/null 2>&1 || true
+auto_revoke="$(adb_su_out "appops get $PKG AUTO_REVOKE_PERMISSIONS_IF_UNUSED")"
+expect_contains "appops AUTO_REVOKE_PERMISSIONS_IF_UNUSED ignore" "ignore" "$auto_revoke"
 
 section "safe boot disallowed"
 adb_su "settings put global safe_boot_disallowed 1" >/dev/null 2>&1 || true
