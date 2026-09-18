@@ -11,7 +11,7 @@ Read `docs/` before touching anything:
 
 ## Layout
 
-The React Native scaffold is in place (`App.tsx`, `android/`, `index.js`); the structure in `docs/red-nose.md` section 2 is the target. There is no iOS target.
+`App.tsx` and `src/` hold the React Native user interface, `android/` the Kotlin foreground service and the native bridge, `provisioning/` the Magisk module, `provision.sh`, and the phone runbook, `tools/soak-observer/` the soak script; `docs/red-nose.md` section 2 lists every file. There is no iOS target.
 
 ## Build
 

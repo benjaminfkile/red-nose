@@ -26,25 +26,27 @@ Repository `red-nose`, branch flow `dev` and `main` (section 16).
 
 ```
 red-nose/
-  package.json  tsconfig.json  app.json  index.js  babel.config.js  metro.config.js
+  package.json  tsconfig.json  app.json  index.js  babel.config.js  metro.config.js  jest.config.js
+  App.tsx                              # navigation root: Enroll | Status | Debug
   VERSION                              # semantic version, one line (section 15)
   CONTRACTS_SHA                        # API commit the vendored contracts came from
   contracts/                           # vendored copy of the API's contracts/ (schemas, fixtures)
+  scripts/check-contracts.mjs          # diffs contracts/ against wmsfo-api at CONTRACTS_SHA
   src/
-    App.tsx                            # navigation root: Enroll | Status | Debug
     native/NativeRedNose.ts            # typed binding over the native module (section 4)
     state/useServiceState.ts           # subscribes to service state events, exposes ServiceState
     enroll/parseEnrollUrl.ts           # rednose://enroll?api=&token= parsing
     enroll/enrollApi.ts                # POST /beacons/enroll, GET /beacons/me (fetch)
     screens/EnrollScreen.tsx  ScanScreen.tsx  ManualEnrollScreen.tsx
     screens/StatusScreen.tsx  ChecklistCard.tsx
-    screens/debug/TelemetryScreen.tsx  FixLogScreen.tsx  SocketLogScreen.tsx
+    screens/debug/DebugScreen.tsx      # the debug shell over the seven screens (section 10)
+    screens/debug/TelemetryScreen.tsx  FixLogScreen.tsx  SocketLogScreen.tsx  LogStreamScreen.tsx (the shared ring-log renderer)
     screens/debug/FailureLogScreen.tsx LogFileScreen.tsx  ReplayScreen.tsx  ProvisioningScreen.tsx
   __tests__/                           # Jest: URL parsing, state reducer, schema fixtures
   tools/soak-observer/                 # Node script polling GET /admin/beacons during the soak (section 17)
   android/
-    build.gradle.kts  settings.gradle.kts  gradle.properties
-    app/build.gradle.kts               # flavours dev, prod; BuildConfig fields (section 15)
+    build.gradle  settings.gradle  gradle.properties
+    app/build.gradle                   # flavours dev, prod; BuildConfig fields (section 15)
     app/src/main/AndroidManifest.xml
     app/src/main/aidl/com/wmsfo/rednose/ipc/IBeaconService.aidl
     app/src/main/aidl/com/wmsfo/rednose/ipc/IBeaconListener.aidl
@@ -54,16 +56,20 @@ red-nose/
       bridge/RedNoseModule.kt          # the RN native module (UI process)
       bridge/RedNosePackage.kt
       bridge/ServiceBinder.kt          # bind/unbind to BeaconService over AIDL
+      bridge/MlKitInit.kt              # initialises ML Kit by hand when its provider has not run, for the code scanner
       service/BeaconService.kt         # the foreground service (:beacon), START_STICKY
       service/BeaconNotification.kt
       service/BootReceiver.kt          # BOOT_COMPLETED, runs in :beacon, reads the store, starts foreground
       service/BootCounters.kt          # serviceRestartCount, sendsFailedSinceBoot keyed by BOOT_COUNT
+      service/ServiceState.kt          # the JSON shape shipped to JS every second (section 4.3)
       location/FixSource.kt            # interface: start(), stop(), fixes: Flow<LatestFix>
       location/FusedFixSource.kt       # FusedLocationProviderClient, 250 ms, high accuracy
       location/GpsFixSource.kt         # LocationManager GPS_PROVIDER, 250 ms
       location/GnssStats.kt            # GnssStatus callback: satellites used and in view
-      location/LatestFix.kt
+      location/LatestFix.kt  FixTime.kt  # FixTime: the one RFC 3339 formatter (section 7.9)
       transport/HubClient.kt           # SignalR Java client wrapper
+      transport/HubTransport.kt        # the surface the socket loop needs from a hub connection
+      transport/SocketEnvelopeRouter.kt  # routes ChannelEvent envelopes into the socket loop
       transport/RestClient.kt          # OkHttp: /locations, /beacons/heartbeat, /beacons/logs
       transport/SocketLoop.kt
       transport/SendLoop.kt
@@ -72,15 +78,19 @@ red-nose/
       transport/Connectivity.kt        # default network callback, retry-now signal
       transport/TransportStats.kt
       telemetry/TelemetryCollector.kt  # builds the heartbeat body
+      telemetry/Heartbeat.kt           # the heartbeat body's types (section 8)
       telemetry/PowerProbe.kt  RadioProbe.kt  ProcessProbe.kt  PermissionProbe.kt
       store/SecureStore.kt             # EncryptedSharedPreferences, :beacon only
       store/Enrollment.kt
       log/RingLog.kt                   # two-file ring, REDNOSE_LOG_RING_BYTES total
       log/LogUploader.kt               # POST /beacons/logs
+      log/BeaconJson.kt                # the one kotlinx.serialization instance every body uses (section 7.9)
       replay/RouteLoader.kt            # URL or content URI to a validated route object
+      replay/Route.kt  RouteSchema.kt  # the route object and its check against the vendored schema
       replay/ReplayFixSource.kt        # FixSource that plays a route
       checklist/Checklist.kt           # every first-run item, verified from system APIs
       guard/DeviceGuard.kt             # watches the settings the beacon needs and switches them back on (section 5.5)
+      guard/DeviceState.kt  MobileData.kt  # the read side of 5.5; the per-SIM mobile data switch
       guard/RootShell.kt               # su -c on a background executor with a timeout
     app/src/main/res/xml/network_security_config.xml       # prod: cleartext off
     app/src/dev/res/xml/network_security_config.xml        # dev: cleartext allowed
@@ -91,7 +101,7 @@ red-nose/
   .github/workflows/android.yml
 ```
 
-Gradle dependencies that matter, all pinned to exact versions in `app/build.gradle.kts`:
+Gradle dependencies that matter, all pinned to exact versions in `app/build.gradle`:
 
 | Artifact | Use |
 |---|---|
