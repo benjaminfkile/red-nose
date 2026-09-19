@@ -130,15 +130,26 @@ android {
             keyAlias 'androiddebugkey'
             keyPassword 'android'
         }
+        // The release key never lives in the repository. CI writes the keystore
+        // to a temporary file and passes these four variables (red-nose.md 15);
+        // without them a release build falls back to the debug key, which is
+        // what a local build gets.
+        if (System.getenv('REDNOSE_KEYSTORE_FILE')) {
+            release {
+                storeFile file(System.getenv('REDNOSE_KEYSTORE_FILE'))
+                storeType 'PKCS12'
+                storePassword System.getenv('REDNOSE_KEYSTORE_PASSWORD')
+                keyAlias System.getenv('REDNOSE_KEY_ALIAS')
+                keyPassword System.getenv('REDNOSE_KEY_PASSWORD')
+            }
+        }
     }
     buildTypes {
         debug {
             signingConfig signingConfigs.debug
         }
         release {
-            // Caution! In production, you need to generate your own keystore file.
-            // see https://reactnative.dev/docs/signed-apk-android.
-            signingConfig signingConfigs.debug
+            signingConfig signingConfigs.findByName('release') ?: signingConfigs.debug
             minifyEnabled enableProguardInReleaseBuilds
             proguardFiles getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro"
         }
