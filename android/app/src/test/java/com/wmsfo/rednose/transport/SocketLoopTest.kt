@@ -4,6 +4,7 @@ import com.google.gson.JsonElement
 import com.wmsfo.rednose.location.LatestFix
 import com.wmsfo.rednose.log.RingLog
 import com.wmsfo.rednose.store.Enrollment
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.test.advanceTimeBy
@@ -140,7 +141,7 @@ class SocketLoopTest {
         advanceUntilIdle()
 
         assertEquals("second hub built after close", 2, hubs.size)
-        assertEquals(1, stats.reconnectCount)
+        assertEquals(2, stats.reconnectCount)
         assertEquals("connected", stats.socketState)
         loop.stop()
     }
@@ -161,7 +162,7 @@ class SocketLoopTest {
         advanceUntilIdle()
 
         assertEquals("null cause still reconnects", 2, hubs.size)
-        assertEquals(1, stats.reconnectCount)
+        assertEquals(2, stats.reconnectCount)
         loop.stop()
     }
 
@@ -183,7 +184,7 @@ class SocketLoopTest {
         }
 
         assertEquals("one initial hub plus 25 reconnects", 26, hubs.size)
-        assertEquals("reconnectCount matches the close count", 25, stats.reconnectCount)
+        assertEquals("reconnectCount counts every successful connect", 26, stats.reconnectCount)
         // Every hub was joined exactly once.
         hubs.forEach { h ->
             assertEquals(1, h.invokes.count { it.method == "JoinPrivateChannel" })
@@ -233,16 +234,16 @@ class SocketLoopTest {
         loop.start(this)
         advanceUntilIdle()
         assertEquals("connected", stats.socketState)
-        assertEquals(0, stats.reconnectCount)
+        assertEquals(1, stats.reconnectCount)
 
         hubs[0].fireClose(RuntimeException("first close"))
         advanceUntilIdle()
-        assertEquals(1, stats.reconnectCount)
+        assertEquals(2, stats.reconnectCount)
         assertEquals("connected", stats.socketState)
 
         hubs[1].fireClose(null)
         advanceUntilIdle()
-        assertEquals(2, stats.reconnectCount)
+        assertEquals(3, stats.reconnectCount)
         assertEquals("connected", stats.socketState)
 
         loop.stop()
@@ -452,7 +453,7 @@ class SocketLoopTest {
         assertTrue("connect line at INFO, got: $line", line.contains(" INFO "))
         assertTrue("carries the ingest channel, got: $line",
             line.contains("channel=${enrollment.ingestChannel}"))
-        assertTrue("carries reconnectCount=0, got: $line", line.contains("reconnectCount=0"))
+        assertTrue("carries reconnectCount=1, got: $line", line.contains("reconnectCount=1"))
         assertTrue("carries attempt=0, got: $line", line.contains("attempt=0"))
         loop.stop()
     }
@@ -470,10 +471,10 @@ class SocketLoopTest {
 
         val connectLines = log.recent(200).filter { it.contains("socket connected channel=") }
         assertEquals("one connect line per successful connect", 2, connectLines.size)
-        assertTrue("first connect names reconnectCount=0, got: ${connectLines[0]}",
-            connectLines[0].contains("reconnectCount=0"))
-        assertTrue("second connect names reconnectCount=1, got: ${connectLines[1]}",
-            connectLines[1].contains("reconnectCount=1"))
+        assertTrue("first connect names reconnectCount=1, got: ${connectLines[0]}",
+            connectLines[0].contains("reconnectCount=1"))
+        assertTrue("second connect names reconnectCount=2, got: ${connectLines[1]}",
+            connectLines[1].contains("reconnectCount=2"))
         loop.stop()
     }
 
@@ -546,6 +547,112 @@ class SocketLoopTest {
         advanceUntilIdle()
         val after = log.recent(500).size
         assertEquals("no additional log lines while connected", before, after)
+        loop.stop()
+    }
+
+    // --- Meaning of reconnectCount: it is the number of times the socket has
+    // reached "connected" since the service started, so one recovery counts as
+    // one no matter how many failed attempts the recovery took.
+
+    @Test fun reconnect_count_is_one_after_first_connect_and_two_after_one_recovery() = runTest {
+        val hubs = mutableListOf<FakeHub>()
+        var startFailsLeft = 3
+        val stats = TransportStats()
+        val loop = buildLoop(
+            hubBuild = {
+                val hub = FakeHub()
+                if (hubs.isNotEmpty() && startFailsLeft > 0) {
+                    hub.onStart = { startFailsLeft--; throw RuntimeException("still down") }
+                }
+                hubs.add(hub)
+                hub
+            },
+            stats = stats,
+        )
+        loop.start(this)
+        advanceUntilIdle()
+        assertEquals("one after the first connect", 1, stats.reconnectCount)
+
+        hubs[0].fireClose(RuntimeException("drop"))
+        // Backoff sequence 1s, 2s, 3s, 5s covers three failed attempts then
+        // one successful reconnect (11 s total); 30 s of virtual time is
+        // plenty.
+        advanceTimeBy(30_000L)
+        advanceUntilIdle()
+
+        assertEquals("still counted once for one recovery", 2, stats.reconnectCount)
+        assertEquals("recovery took three failed attempts plus one that succeeded",
+            5, hubs.size)
+        loop.stop()
+    }
+
+    // --- A close during start() ends the wait at once: the loop reconnects
+    // after the normal backoff, not after the 10 s handshake timeout. --------
+
+    @Test fun a_close_while_start_is_pending_reconnects_without_waiting_for_the_timeout() = runTest {
+        val hubs = mutableListOf<FakeHub>()
+        val block = CompletableDeferred<Unit>()
+        val stats = TransportStats()
+        val loop = buildLoop(
+            hubBuild = {
+                val hub = FakeHub()
+                if (hubs.isEmpty()) {
+                    hub.onStart = { block.await() }
+                }
+                hubs.add(hub)
+                hub
+            },
+            stats = stats,
+        )
+        val t0 = currentTime
+        loop.start(this)
+        advanceUntilIdle()
+        assertEquals("first hub built and its start() is suspended", 1, hubs.size)
+
+        hubs[0].fireClose(RuntimeException("close during start"))
+        // Advance only the first backoff; a second hub must appear.
+        advanceTimeBy(1_000L)
+        advanceUntilIdle()
+
+        assertEquals("second hub built after the close during start()", 2, hubs.size)
+        val elapsed = currentTime - t0
+        assertTrue("fewer than 10 000 ms of virtual time passed, got $elapsed",
+            elapsed < 10_000L)
+        loop.stop()
+    }
+
+    // --- A close during JoinPrivateChannel ends the wait at once too. -------
+
+    @Test fun a_close_while_the_join_is_pending_reconnects_without_waiting_for_the_timeout() = runTest {
+        val hubs = mutableListOf<FakeHub>()
+        val block = CompletableDeferred<Unit>()
+        val stats = TransportStats()
+        val loop = buildLoop(
+            hubBuild = {
+                val hub = FakeHub()
+                if (hubs.isEmpty()) {
+                    hub.onInvoke = { method, _ ->
+                        if (method == "JoinPrivateChannel") block.await()
+                    }
+                }
+                hubs.add(hub)
+                hub
+            },
+            stats = stats,
+        )
+        val t0 = currentTime
+        loop.start(this)
+        advanceUntilIdle()
+        assertEquals("first hub built, start() done, join suspended", 1, hubs.size)
+
+        hubs[0].fireClose(RuntimeException("close during join"))
+        advanceTimeBy(1_000L)
+        advanceUntilIdle()
+
+        assertEquals("second hub built after the close during the join", 2, hubs.size)
+        val elapsed = currentTime - t0
+        assertTrue("fewer than 10 000 ms of virtual time passed, got $elapsed",
+            elapsed < 10_000L)
         loop.stop()
     }
 

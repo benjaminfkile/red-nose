@@ -4,14 +4,18 @@ import com.wmsfo.rednose.location.LatestFix
 import com.wmsfo.rednose.location.toPayload
 import com.wmsfo.rednose.log.RingLog
 import com.wmsfo.rednose.store.Enrollment
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.async
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.channels.ReceiveChannel
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.selects.select
 import kotlinx.coroutines.withTimeout
 import kotlinx.coroutines.withTimeoutOrNull
 import kotlin.coroutines.coroutineContext
@@ -58,30 +62,70 @@ class SocketLoop(
                     // hubBuild runs inside the try so a build failure (bad URL
                     // or resource issue in the SignalR builder) does not kill
                     // the loop.
-                    conn = hubBuild(enrollment.hubUrl)
-                    conn.onChannelEvent(router::onEnvelope)
-                    conn.onClosed { cause -> closed.trySend(cause) }
-                    withTimeout(10_000) { conn.start() }
-                    withTimeout(10_000) {
-                        conn.invoke("JoinPrivateChannel",
-                            enrollment.ingestChannel, enrollment.key)
+                    val hub = hubBuild(enrollment.hubUrl)
+                    conn = hub
+                    hub.onChannelEvent(router::onEnvelope)
+                    hub.onClosed { cause -> closed.trySend(cause) }
+                    // start() and JoinPrivateChannel race the per-connection
+                    // close channel: whichever settles first wins.  A close
+                    // received during the handshake ends the wait at once and
+                    // takes the same close branch as one received after the
+                    // join.  The 10 s ceilings remain for a handshake that
+                    // neither settles nor closes.
+                    val outcome: HandshakeOutcome = coroutineScope {
+                        val handshake = async<Throwable?> {
+                            try {
+                                withTimeout(10_000) { hub.start() }
+                                withTimeout(10_000) {
+                                    hub.invoke("JoinPrivateChannel",
+                                        enrollment.ingestChannel, enrollment.key)
+                                }
+                                null
+                            } catch (c: CancellationException) {
+                                throw c
+                            } catch (t: Throwable) {
+                                t
+                            }
+                        }
+                        val result = select<HandshakeOutcome> {
+                            handshake.onAwait { failure ->
+                                if (failure == null) HandshakeOutcome.Ok
+                                else HandshakeOutcome.Failed(failure)
+                            }
+                            closed.onReceive { cause -> HandshakeOutcome.Closed(cause) }
+                        }
+                        if (result is HandshakeOutcome.Closed) handshake.cancel()
+                        result
                     }
-                    val succeededAttempt = attempt
-                    attempt = 0
-                    stats.socketState = "connected"
-                    connection = conn
-                    log.socket(
-                        "connected channel=${enrollment.ingestChannel}" +
-                            " reconnectCount=${stats.reconnectCount}" +
-                            " attempt=$succeededAttempt"
-                    )
-                    sendLoop.kick()
-                    val cause = closed.receive()
-                    log.socket(
-                        "closed; reconnecting channel=${enrollment.ingestChannel}" +
-                            " delayMs=${backoff(attempt)} attempt=$attempt",
-                        cause,
-                    )
+                    when (outcome) {
+                        HandshakeOutcome.Ok -> {
+                            val succeededAttempt = attempt
+                            attempt = 0
+                            stats.reconnectCount = stats.reconnectCount + 1
+                            stats.socketState = "connected"
+                            connection = hub
+                            log.socket(
+                                "connected channel=${enrollment.ingestChannel}" +
+                                    " reconnectCount=${stats.reconnectCount}" +
+                                    " attempt=$succeededAttempt"
+                            )
+                            sendLoop.kick()
+                            val cause = closed.receive()
+                            log.socket(
+                                "closed; reconnecting channel=${enrollment.ingestChannel}" +
+                                    " delayMs=${backoff(attempt)} attempt=$attempt",
+                                cause,
+                            )
+                        }
+                        is HandshakeOutcome.Closed -> {
+                            log.socket(
+                                "closed; reconnecting channel=${enrollment.ingestChannel}" +
+                                    " delayMs=${backoff(attempt)} attempt=$attempt",
+                                outcome.cause,
+                            )
+                        }
+                        is HandshakeOutcome.Failed -> throw outcome.cause
+                    }
                 } catch (t: Throwable) {
                     // Catches Throwable so an Error or non-Exception Throwable
                     // cannot escape and kill the coroutine (red-nose.md 7.4).
@@ -100,7 +144,6 @@ class SocketLoop(
                     try { conn?.stop() } catch (_: Throwable) {}
                 }
                 stats.socketState = "reconnecting"
-                stats.reconnectCount = stats.reconnectCount + 1
                 val wait = backoff(attempt)
                 attempt = attempt + 1
                 withTimeoutOrNull(wait) { retryNow.receive() }
@@ -169,5 +212,11 @@ class SocketLoop(
     private fun Exception.isJoinDenied(): Boolean {
         val m = message?.lowercase() ?: return false
         return m.contains("denied") || m.contains("join denied") || m.contains("forbidden")
+    }
+
+    private sealed class HandshakeOutcome {
+        object Ok : HandshakeOutcome()
+        data class Failed(val cause: Throwable) : HandshakeOutcome()
+        data class Closed(val cause: Throwable?) : HandshakeOutcome()
     }
 }
