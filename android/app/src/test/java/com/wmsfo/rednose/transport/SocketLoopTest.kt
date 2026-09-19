@@ -1,9 +1,6 @@
 package com.wmsfo.rednose.transport
 
-import com.google.gson.JsonElement
-import com.wmsfo.rednose.location.LatestFix
 import com.wmsfo.rednose.log.RingLog
-import com.wmsfo.rednose.store.Enrollment
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.channels.Channel
@@ -26,7 +23,8 @@ import org.junit.rules.TemporaryFolder
 // the loop.
 //
 // The tests inject a FakeHub through the `hubBuild` seam so they never touch the
-// real SignalR client or the network.
+// real SignalR client or the network.  FakeHub, dummySendLoop, and buildLoop
+// live in SocketLoopTestSupport.kt so ConformanceTest can reuse them.
 @OptIn(ExperimentalCoroutinesApi::class)
 class SocketLoopTest {
 
@@ -37,91 +35,7 @@ class SocketLoopTest {
 
     @After fun tearDown() { /* RingLog has no explicit close */ }
 
-    private val enrollment = Enrollment(
-        apiBaseUrl = "https://example.invalid",
-        hubUrl = "https://example.invalid/hub",
-        ingestChannel = "wmsfo-api-dev:ingest",
-        beaconId = 42L,
-        name = "test-beacon",
-        key = "test-key-longer-than-twelve-characters",
-    )
-
-    private class FakeHub : HubTransport {
-        var channelEventHandler: ((JsonElement) -> Unit)? = null
-        var closedHandler: ((Throwable?) -> Unit)? = null
-        val invokes: MutableList<Invocation> = mutableListOf()
-        var startCount: Int = 0
-        var stopCount: Int = 0
-        var onStart: suspend () -> Unit = { }
-        var onInvoke: suspend (String, Array<out Any?>) -> Unit = { _, _ -> }
-        var onFireAndForget: (String, Array<Any?>, () -> Unit, (Throwable) -> Unit) -> Unit =
-            { _, _, s, _ -> s() }
-
-        fun fireClose(cause: Throwable?) { closedHandler?.invoke(cause) }
-
-        override fun onChannelEvent(handler: (JsonElement) -> Unit) { channelEventHandler = handler }
-        override fun onClosed(handler: (Throwable?) -> Unit) { closedHandler = handler }
-        override suspend fun start() { startCount++; onStart() }
-        override suspend fun invoke(method: String, vararg args: Any?) {
-            invokes.add(Invocation(method, args.toList()))
-            onInvoke(method, args)
-        }
-        override fun invokeFireAndForget(
-            method: String,
-            args: Array<Any?>,
-            onSuccess: () -> Unit,
-            onError: (Throwable) -> Unit,
-        ) {
-            onFireAndForget(method, args, onSuccess, onError)
-        }
-        override fun stop() { stopCount++ }
-
-        data class Invocation(val method: String, val args: List<Any?>)
-    }
-
-    // A minimal SendLoop instance for SocketLoop's dependency: SocketLoop only
-    // calls sendLoop.kick(), which drops onto a conflated internal channel.  The
-    // send loop is never started, so its dispatcher never runs.
-    private fun dummySendLoop(): SendLoop {
-        val state = object : SendLoop.State {
-            override var latestFix: LatestFix? = null
-            override var lastDeliveredSeqLocal: Long? = null
-            override var lastReceiptLatencyMs: Long? = null
-            override var lastSendError: String? = null
-            override var attempt: Int = 0
-            override var inFlight: Boolean = false
-            override var socketState: String = "connected"
-            override var liveEventId: Long? = null
-            override var ingestChannel: String = "wmsfo-api-dev:ingest"
-        }
-        val hub = object : SendLoop.HubSender {
-            override suspend fun sendToChannel(channel: String, fix: LatestFix): Boolean = true
-            override fun requestRejoin() { }
-        }
-        val rest = object : SendLoop.RestSender {
-            override suspend fun postLocation(fix: LatestFix): SendLoop.PostResult =
-                SendLoop.PostResult(true, null, null, null)
-        }
-        return SendLoop(
-            state = state, stats = TransportStats(), hub = hub, rest = rest, log = log,
-            backoff = { 1L }, elapsedRealtimeMs = { 0L },
-        )
-    }
-
-    private fun buildLoop(
-        hubBuild: (String) -> HubTransport,
-        stats: TransportStats = TransportStats(),
-        retryNow: Channel<Unit> = Channel(capacity = Channel.CONFLATED),
-        backoff: (Int) -> Long = { Backoff.delayMs(it).toLong() },
-    ): SocketLoop = SocketLoop(
-        enrollment = enrollment,
-        stats = stats,
-        sendLoop = dummySendLoop(),
-        retryNow = retryNow,
-        log = log,
-        hubBuild = hubBuild,
-        backoff = backoff,
-    )
+    private val enrollment = TEST_ENROLLMENT
 
     // --- Acceptance test 1: a non-null cause reconnects. -------------------
 
@@ -129,6 +43,7 @@ class SocketLoopTest {
         val hubs = mutableListOf<FakeHub>()
         val stats = TransportStats()
         val loop = buildLoop(
+            log = log,
             hubBuild = { FakeHub().also { hubs.add(it) } },
             stats = stats,
         )
@@ -152,6 +67,7 @@ class SocketLoopTest {
         val hubs = mutableListOf<FakeHub>()
         val stats = TransportStats()
         val loop = buildLoop(
+            log = log,
             hubBuild = { FakeHub().also { hubs.add(it) } },
             stats = stats,
         )
@@ -172,6 +88,7 @@ class SocketLoopTest {
         val hubs = mutableListOf<FakeHub>()
         val stats = TransportStats()
         val loop = buildLoop(
+            log = log,
             hubBuild = { FakeHub().also { hubs.add(it) } },
             stats = stats,
         )
@@ -200,6 +117,7 @@ class SocketLoopTest {
         val hubs = mutableListOf<FakeHub>()
         val buildTimes = mutableListOf<Long>()
         val loop = buildLoop(
+            log = log,
             hubBuild = {
                 buildTimes.add(currentTime)
                 FakeHub().also { hub ->
@@ -226,6 +144,7 @@ class SocketLoopTest {
         val hubs = mutableListOf<FakeHub>()
         val stats = TransportStats()
         val loop = buildLoop(
+            log = log,
             hubBuild = { FakeHub().also { hubs.add(it) } },
             stats = stats,
         )
@@ -255,6 +174,7 @@ class SocketLoopTest {
     @Test fun join_private_channel_re_invoked_after_every_reconnect() = runTest {
         val hubs = mutableListOf<FakeHub>()
         val loop = buildLoop(
+            log = log,
             hubBuild = { FakeHub().also { hubs.add(it) } },
         )
         loop.start(this)
@@ -282,6 +202,7 @@ class SocketLoopTest {
         val hubs = mutableListOf<FakeHub>()
         val stats = TransportStats()
         val loop = buildLoop(
+            log = log,
             hubBuild = {
                 val hub = FakeHub()
                 if (hubs.isEmpty()) {
@@ -314,6 +235,7 @@ class SocketLoopTest {
         val hubs = mutableListOf<FakeHub>()
         val stats = TransportStats()
         val loop = buildLoop(
+            log = log,
             hubBuild = { FakeHub().also { hubs.add(it) } },
             stats = stats,
         )
@@ -340,6 +262,7 @@ class SocketLoopTest {
     @Test fun a_non_exception_throwable_from_start_does_not_kill_the_loop() = runTest {
         val hubs = mutableListOf<FakeHub>()
         val loop = buildLoop(
+            log = log,
             hubBuild = {
                 val hub = FakeHub()
                 if (hubs.isEmpty()) {
@@ -363,6 +286,7 @@ class SocketLoopTest {
         val hubs = mutableListOf<FakeHub>()
         var buildFailures = 3
         val loop = buildLoop(
+            log = log,
             hubBuild = {
                 if (buildFailures > 0) {
                     buildFailures--
@@ -387,6 +311,7 @@ class SocketLoopTest {
         val hubs = mutableListOf<FakeHub>()
         val stats = TransportStats()
         val loop = buildLoop(
+            log = log,
             hubBuild = {
                 val hub = FakeHub()
                 if (hubs.isEmpty()) {
@@ -420,6 +345,7 @@ class SocketLoopTest {
         val hubs = mutableListOf<FakeHub>()
         val retryNow = Channel<Unit>(capacity = Channel.CONFLATED)
         val loop = buildLoop(
+            log = log,
             hubBuild = { FakeHub().also { hubs.add(it) } },
             retryNow = retryNow,
             backoff = { 60_000L },  // Long backoff; retryNow must short-circuit.
@@ -443,7 +369,7 @@ class SocketLoopTest {
     // recovery.
 
     @Test fun successful_connect_logs_channel_reconnect_count_and_attempt_at_info() = runTest {
-        val loop = buildLoop(hubBuild = { FakeHub() })
+        val loop = buildLoop(log = log, hubBuild = { FakeHub() })
         loop.start(this)
         advanceUntilIdle()
 
@@ -463,7 +389,7 @@ class SocketLoopTest {
 
     @Test fun reconnect_is_distinguishable_from_first_connect_via_reconnect_count() = runTest {
         val hubs = mutableListOf<FakeHub>()
-        val loop = buildLoop(hubBuild = { FakeHub().also { hubs.add(it) } })
+        val loop = buildLoop(log = log, hubBuild = { FakeHub().also { hubs.add(it) } })
         loop.start(this)
         advanceUntilIdle()
         hubs[0].fireClose(RuntimeException("drop"))
@@ -484,6 +410,7 @@ class SocketLoopTest {
     @Test fun close_logs_the_cause_and_the_scheduled_backoff_delay() = runTest {
         val hubs = mutableListOf<FakeHub>()
         val loop = buildLoop(
+            log = log,
             hubBuild = { FakeHub().also { hubs.add(it) } },
             backoff = { 4321L },
         )
@@ -509,6 +436,7 @@ class SocketLoopTest {
     @Test fun no_credential_value_appears_in_any_logged_line() = runTest {
         val hubs = mutableListOf<FakeHub>()
         val loop = buildLoop(
+            log = log,
             hubBuild = {
                 val hub = FakeHub()
                 if (hubs.isEmpty()) {
@@ -538,7 +466,7 @@ class SocketLoopTest {
     // --- Quietness: a steady connected socket emits no repeated lines.
 
     @Test fun steady_connected_socket_emits_no_repeated_lines() = runTest {
-        val loop = buildLoop(hubBuild = { FakeHub() })
+        val loop = buildLoop(log = log, hubBuild = { FakeHub() })
         loop.start(this)
         advanceUntilIdle()
 
@@ -559,6 +487,7 @@ class SocketLoopTest {
         var startFailsLeft = 3
         val stats = TransportStats()
         val loop = buildLoop(
+            log = log,
             hubBuild = {
                 val hub = FakeHub()
                 if (hubs.isNotEmpty() && startFailsLeft > 0) {
@@ -594,6 +523,7 @@ class SocketLoopTest {
         val block = CompletableDeferred<Unit>()
         val stats = TransportStats()
         val loop = buildLoop(
+            log = log,
             hubBuild = {
                 val hub = FakeHub()
                 if (hubs.isEmpty()) {
@@ -628,6 +558,7 @@ class SocketLoopTest {
         val block = CompletableDeferred<Unit>()
         val stats = TransportStats()
         val loop = buildLoop(
+            log = log,
             hubBuild = {
                 val hub = FakeHub()
                 if (hubs.isEmpty()) {
@@ -663,6 +594,7 @@ class SocketLoopTest {
         val hubs = mutableListOf<FakeHub>()
         val stats = TransportStats()
         val loop = buildLoop(
+            log = log,
             hubBuild = { FakeHub().also { hubs.add(it) } },
             stats = stats,
         )

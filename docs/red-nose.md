@@ -30,6 +30,7 @@ red-nose/
   App.tsx                              # navigation root: Enroll | Status | Debug
   VERSION                              # semantic version, one line (section 15)
   CONTRACTS_SHA                        # API commit the vendored contracts came from
+  CONFORMANCE_SHA                      # beacon-library commit the socket loop conformance scenarios came from (section 7.4)
   contracts/                           # vendored copy of the API's contracts/ (schemas, fixtures)
   scripts/check-contracts.mjs          # diffs contracts/ against wmsfo-api at CONTRACTS_SHA
   src/
@@ -94,6 +95,7 @@ red-nose/
       guard/RootShell.kt               # su -c on a background executor with a timeout
     app/src/main/res/xml/network_security_config.xml       # prod: cleartext off
     app/src/dev/res/xml/network_security_config.xml        # dev: cleartext allowed
+    app/src/test/resources/conformance/                    # shared socket loop conformance scenarios (section 7.4), copied from beacon-library at CONFORMANCE_SHA
   provisioning/
     magisk-module/                     # module.prop, customize.sh, service.sh (root watchdog), system/app/RedNose/ tree
     provision.sh                       # adb+root: pm grant, appops, deviceidle whitelist, settings, root policy, safe boot off
@@ -389,6 +391,8 @@ A close received while `start()` or the join is still pending ends the wait at o
 `onEnvelope` routes on `channel` and `event`: `joined` for the ingest channel confirms `CONNECTED`; `channelEvicted` with `auth_expired` re-invokes `JoinPrivateChannel` immediately and kicks the send loop; `service_removed` retries the join every 5 s; anything else is ignored. A join that throws after an eviction closes the connection and takes the failure branch. At most one `HubConnection` exists.
 
 The handler is registered with `com.google.gson.JsonElement::class.java` because the SignalR Java client deserializes handler arguments with Gson: a `kotlinx.serialization.json.JsonElement` is a sealed type Gson cannot construct, and the client drops an argument it cannot build before the handler runs. The router walks the Gson tree (or an `Object`/map alternative) and reads `event`, `reason`, and `data.reason`; both eviction shapes on the wire are accepted. Every eviction, every re-join success, and every re-join failure is written to the ring log (`socket: evicted <reason>`, `socket: rejoined`, `socket: rejoin failed <error>`, red-nose.md 7.6), and `rejoinCount` on `TransportStats` (section 8) counts every `JoinPrivateChannel` re-invocation the loop issues on a still-open connection.
+
+The loop is held to the shared socket loop conformance scenarios in `android/app/src/test/resources/conformance/`, copied byte-identically from `beacon-library` at the commit in `CONFORMANCE_SHA` and never edited here.
 
 ### 7.5 Send loop
 
