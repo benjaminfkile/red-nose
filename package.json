@@ -8,7 +8,8 @@
     "lint": "eslint .",
     "start": "react-native start",
     "test": "jest",
-    "contracts:check": "node scripts/check-contracts.mjs"
+    "contracts:check": "node scripts/check-contracts.mjs",
+    "check:no-infra": "node scripts/check-no-infra.mjs"
   },
   "dependencies": {
     "@react-native/new-app-screen": "0.87.1",

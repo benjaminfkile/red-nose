@@ -44,6 +44,8 @@ jobs:
         with:
           packages: platform-tools
       - run: npm ci
+      - name: no infrastructure identifiers or credentials in the tree
+        run: node scripts/check-no-infra.mjs
       - name: Check vendored contracts against CONTRACTS_SHA
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
