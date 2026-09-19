@@ -213,7 +213,7 @@ class SocketLoop(
 
     private fun Exception.isJoinDenied(): Boolean {
         val m = message?.lowercase() ?: return false
-        return m.contains("denied") || m.contains("join denied") || m.contains("forbidden")
+        return m.contains("not authorized") || m.contains("denied") || m.contains("forbidden")
     }
 
     private companion object {
