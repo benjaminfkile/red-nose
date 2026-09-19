@@ -56,6 +56,7 @@ class SocketLoop(
             while (isActive) {
                 stats.socketState = if (attempt == 0) "connecting" else "reconnecting"
                 var conn: HubTransport? = null
+                var joinDenied = false
                 val closed = Channel<Throwable?>(capacity = Channel.CONFLATED)
                 closedSignal = closed
                 try {
@@ -136,17 +137,18 @@ class SocketLoop(
                     // like any other iteration failure.
                     coroutineContext.ensureActive()
                     log.socket("join or start failed channel=${enrollment.ingestChannel}", t)
-                    if (t is Exception && t.isJoinDenied()) {
-                        delay(10_000)
-                    }
+                    joinDenied = t is Exception && t.isJoinDenied()
                 } finally {
                     connection = null
                     try { conn?.stop() } catch (_: Throwable) {}
                 }
                 stats.socketState = "reconnecting"
-                val wait = backoff(attempt)
+                // A denied join waits 10 s in place of the backoff step and is
+                // not cut short by a connectivity change; every other close or
+                // failure waits the backoff step, which a retry-now signal ends.
+                val wait = if (joinDenied) JOIN_DENIED_FIRST_WAIT_MS else backoff(attempt)
                 attempt = attempt + 1
-                withTimeoutOrNull(wait) { retryNow.receive() }
+                if (joinDenied) delay(wait) else withTimeoutOrNull(wait) { retryNow.receive() }
             }
         }
     }
@@ -212,6 +214,10 @@ class SocketLoop(
     private fun Exception.isJoinDenied(): Boolean {
         val m = message?.lowercase() ?: return false
         return m.contains("denied") || m.contains("join denied") || m.contains("forbidden")
+    }
+
+    private companion object {
+        const val JOIN_DENIED_FIRST_WAIT_MS = 10_000L
     }
 
     private sealed class HandshakeOutcome {

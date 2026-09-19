@@ -369,18 +369,23 @@ while (isActive) {
         conn.on("ChannelEvent", router::onEnvelope, com.google.gson.JsonElement::class.java)  // Gson-typed, see below
         val closed = Channel<Throwable?>(CONFLATED); closedSignal = closed   // one close channel per connection
         conn.onClosed { cause -> closed.trySend(cause) }
-        withTimeout(10_000) { conn.start().await() }                                   // kotlinx-coroutines-rx3
-        withTimeout(10_000) { conn.invoke(Void::class.java, "JoinPrivateChannel", enrollment.ingestChannel, enrollment.key).await() }
-        attempt = 0; socketState = CONNECTED; hub = conn
-        sendLoop.kick()                                     // send the current fix now
-        closed.receive()                                    // suspend until this connection closes
-    } catch (e: Exception) {
-        log.socket("join or start failed", e)               // a denied join: first retry waits 10 s (contracts 2.3 step 8)
-        if (e.isJoinDenied()) delay(10_000)
+        val closedEarly = raceAgainst(closed) {             // whichever comes first: the handshake settling or this connection closing
+            withTimeout(10_000) { conn.start().await() }                               // kotlinx-coroutines-rx3
+            withTimeout(10_000) { conn.invoke(Void::class.java, "JoinPrivateChannel", enrollment.ingestChannel, enrollment.key).await() }
+        }
+        if (!closedEarly) {
+            attempt = 0; reconnectCount++; socketState = CONNECTED; hub = conn   // reconnectCount: times the socket has reached connected
+            sendLoop.kick()                                 // send the current fix now
+            closed.receive()                                // suspend until this connection closes
+        }
+    } catch (t: Throwable) {
+        log.socket("join or start failed", t)
+        joinDenied = t.isJoinDenied()
     }
     hub = null; conn.stop(); socketState = RECONNECTING
-    val wait = Backoff.delayMs(attempt++)
-    withTimeoutOrNull(wait) { connectivity.retryNow.receive() }   // sleep the backoff, or less if the network came back
+    if (joinDenied) delay(10_000)                           // a denied join: the first retry waits 10 s in place of the backoff step (contracts 2.3 step 8)
+    else withTimeoutOrNull(Backoff.delayMs(attempt)) { connectivity.retryNow.receive() }   // sleep the backoff, or less if the network came back
+    attempt++
 }
 ```
 

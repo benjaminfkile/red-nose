@@ -7,6 +7,7 @@ import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.test.advanceTimeBy
 import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.currentTime
+import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
 import org.junit.After
 import org.junit.Assert.assertEquals
@@ -536,13 +537,13 @@ class SocketLoopTest {
         )
         val t0 = currentTime
         loop.start(this)
-        advanceUntilIdle()
+        runCurrent()
         assertEquals("first hub built and its start() is suspended", 1, hubs.size)
 
         hubs[0].fireClose(RuntimeException("close during start"))
         // Advance only the first backoff; a second hub must appear.
         advanceTimeBy(1_000L)
-        advanceUntilIdle()
+        runCurrent()
 
         assertEquals("second hub built after the close during start()", 2, hubs.size)
         val elapsed = currentTime - t0
@@ -573,12 +574,12 @@ class SocketLoopTest {
         )
         val t0 = currentTime
         loop.start(this)
-        advanceUntilIdle()
+        runCurrent()
         assertEquals("first hub built, start() done, join suspended", 1, hubs.size)
 
         hubs[0].fireClose(RuntimeException("close during join"))
         advanceTimeBy(1_000L)
-        advanceUntilIdle()
+        runCurrent()
 
         assertEquals("second hub built after the close during the join", 2, hubs.size)
         val elapsed = currentTime - t0
