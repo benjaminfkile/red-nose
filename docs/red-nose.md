@@ -384,6 +384,8 @@ while (isActive) {
 
 The close channel is created per connection: the loop's own `conn.stop()` of a finished connection fires `onClosed` as well, and a channel shared across connections would hand that stale close to the next connection the moment it joined, closing it again in a loop.
 
+A close received while `start()` or the join is still pending ends the wait at once and takes the same close branch as a close received after the join; the 10 s ceilings remain for a handshake that neither settles nor closes.
+
 `onEnvelope` routes on `channel` and `event`: `joined` for the ingest channel confirms `CONNECTED`; `channelEvicted` with `auth_expired` re-invokes `JoinPrivateChannel` immediately and kicks the send loop; `service_removed` retries the join every 5 s; anything else is ignored. A join that throws after an eviction closes the connection and takes the failure branch. At most one `HubConnection` exists.
 
 The handler is registered with `com.google.gson.JsonElement::class.java` because the SignalR Java client deserializes handler arguments with Gson: a `kotlinx.serialization.json.JsonElement` is a sealed type Gson cannot construct, and the client drops an argument it cannot build before the handler runs. The router walks the Gson tree (or an `Object`/map alternative) and reads `event`, `reason`, and `data.reason`; both eviction shapes on the wire are accepted. Every eviction, every re-join success, and every re-join failure is written to the ring log (`socket: evicted <reason>`, `socket: rejoined`, `socket: rejoin failed <error>`, red-nose.md 7.6), and `rejoinCount` on `TransportStats` (section 8) counts every `JoinPrivateChannel` re-invocation the loop issues on a still-open connection.
@@ -484,6 +486,8 @@ One `Json { encodeDefaults = true; explicitNulls = true; ignoreUnknownKeys = tru
 | `guard.airplaneModeRestores`, `guard.locationRestores`, `guard.mobileDataRestores`, `guard.batterySaverRestores`, `guard.permissionRestores`, `guard.dozeAllowlistRestores` | `DeviceGuard` counters since the service started (section 5.5) |
 | `guard.lastRestoredItem`, `guard.lastRestoredAt`, `guard.lastError` | `DeviceGuard`: the item names are `airplaneMode`, `location`, `mobileData`, `batterySaver`, `permissions`, `dozeAllowlist`; `lastError` is the text of the last failure line, null until one happens |
 | `sentAt` | wall clock at build |
+
+`transport.reconnectCount` is the number of times the socket has reached connected since the service started.
 
 `ServiceState.telemetry` is the same body as it would be sent now, refreshed every second for the UI.
 
