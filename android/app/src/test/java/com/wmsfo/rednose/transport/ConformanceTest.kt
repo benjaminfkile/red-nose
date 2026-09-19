@@ -49,6 +49,9 @@ class ConformanceTest(
     @get:Rule val tmp: TemporaryFolder = TemporaryFolder()
 
     companion object {
+        // The text the gateway puts in a denied join, read from scenarios.json.
+        private var joinDeniedErrorText: String = ""
+
         @JvmStatic
         @Parameterized.Parameters(name = "{0}")
         fun scenarios(): List<Array<Any>> {
@@ -66,6 +69,7 @@ class ConformanceTest(
             if (errors.isNotEmpty()) {
                 error("scenarios.json failed schema validation: $errors")
             }
+            joinDeniedErrorText = jsonNode.get("joinDeniedErrorText").asText()
             val out = mutableListOf<Array<Any>>()
             for (s in jsonNode.get("scenarios")) {
                 out.add(arrayOf(s.get("name").asText(), s))
@@ -109,7 +113,7 @@ class ConformanceTest(
                 if (method == "JoinPrivateChannel") {
                     when (joinQ.receive()) {
                         JoinOutcome.Resolves -> Unit
-                        JoinOutcome.Denied -> throw RuntimeException("join denied")
+                        JoinOutcome.Denied -> throw RuntimeException("HubException: $joinDeniedErrorText")
                         JoinOutcome.Rejects -> throw RuntimeException("scenario joinRejects")
                         JoinOutcome.NeverSettles -> suspendCancellableCoroutine<Unit> { }
                     }
@@ -121,7 +125,7 @@ class ConformanceTest(
                         try {
                             when (joinQ.receive()) {
                                 JoinOutcome.Resolves -> onSuccess()
-                                JoinOutcome.Denied -> onError(RuntimeException("join denied"))
+                                JoinOutcome.Denied -> onError(RuntimeException("HubException: $joinDeniedErrorText"))
                                 JoinOutcome.Rejects -> onError(RuntimeException("scenario joinRejects"))
                                 JoinOutcome.NeverSettles -> suspendCancellableCoroutine<Unit> { }
                             }

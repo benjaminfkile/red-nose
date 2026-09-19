@@ -1,15 +1,23 @@
 # docs/red-nose.md section 16.
 name: android
 
+# Pushes to dev and main and a manual run only, never pull_request: the job
+# runs on a self-hosted runner, and a pull request from a fork must not be
+# able to start it (docs/red-nose.md 16).
 on:
   push:
     branches: [dev, main]
-  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
 
 jobs:
   build:
-    # The self-hosted runner on Nimbus (labels self-hosted,linux,x64,nimbus); see docs/red-nose.md 16.
-    runs-on: [self-hosted, linux, x64]
+    # The self-hosted runner nimbus (labels self-hosted,linux,x64,nimbus); see docs/red-nose.md 16.
+    runs-on: [self-hosted, linux, x64, nimbus]
+    # The environment holds the signing key of its flavour and admits its branch only.
+    environment: ${{ github.ref_name == 'main' && 'prod' || 'dev' }}
     steps:
       - uses: actions/checkout@v4
       - name: Free runner disk space
@@ -44,8 +52,20 @@ jobs:
       - run: npx tsc --noEmit
       - name: Unit tests (dev debug)
         run: cd android && ./gradlew :app:testDevDebugUnitTest --no-daemon
+      - name: Write the signing keystore
+        env:
+          REDNOSE_KEYSTORE_B64: ${{ secrets.REDNOSE_KEYSTORE_B64 }}
+        run: |
+          umask 077
+          printf '%s' "$REDNOSE_KEYSTORE_B64" | base64 -d >"$RUNNER_TEMP/rednose-release.p12"
+          test -s "$RUNNER_TEMP/rednose-release.p12"
       - name: Assemble
         id: assemble
+        env:
+          REDNOSE_KEYSTORE_FILE: ${{ runner.temp }}/rednose-release.p12
+          REDNOSE_KEYSTORE_PASSWORD: ${{ secrets.REDNOSE_KEYSTORE_PASSWORD }}
+          REDNOSE_KEY_ALIAS: ${{ secrets.REDNOSE_KEY_ALIAS }}
+          REDNOSE_KEY_PASSWORD: ${{ secrets.REDNOSE_KEY_PASSWORD }}
         run: |
           cd android
           # The beacon phone is arm64 only (docs/red-nose.md 14.4); building the
@@ -58,6 +78,9 @@ jobs:
             ./gradlew :app:assembleDevRelease --no-daemon "$ABIS"
             echo "flavour=dev" >>"$GITHUB_OUTPUT"
           fi
+      - name: Remove the signing keystore
+        if: always()
+        run: rm -f "$RUNNER_TEMP/rednose-release.p12"
       - name: Locate signed APK
         id: apk
         run: |
