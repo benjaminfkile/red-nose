@@ -123,10 +123,11 @@ The public site reads exactly three JSON objects plus media and icon files from 
 | `media/{mediaId}/w{width}.webp` | Derived width variants of a raster asset (480, 960, 1600) | The API node handling the confirm | Inside the confirm | `public, max-age=31536000, immutable` |
 | `media/{mediaId}/dzi/poster.dzi`, `media/{mediaId}/dzi/poster_files/{level}/{col}_{row}.png` | The Deep Zoom tile pyramid of a large raster asset (longest side 2048 px or more): the descriptor and its lossless PNG tiles (1.3b); an asset confirmed before the PNG pyramid carries JPEG tiles and its descriptor says `Format="jpg"`, which the viewer honours | The API node handling the confirm | Inside the confirm | `public, max-age=31536000, immutable` |
 | `icons/{sha256}.svg` | One icon of the built-in library (1.3b) | The node that migrates on boot, once per library change | Under the migration lock | `public, max-age=31536000, immutable` |
+| `email/{sha256}.png` | The email logo, `templates/email/logo.png` (7.8) | The node that migrates on boot, once per logo change (a `HEAD` finds the key absent) | Under the migration lock | `public, max-age=31536000, immutable` |
 
-The bucket is private; CloudFront reads it through origin access control and is the only reader (1.7). Nothing under any other prefix is written by v2. `{sha256}` is the lowercase hex SHA-256 of the object bytes (canonical bytes for JSON, section 1.6; the file bytes for icons). `{mediaId}` is the asset's UUID; `{filename}` is the uploaded name sanitized to `[A-Za-z0-9._-]`, at most 100 characters.
+The bucket is private; CloudFront reads it through origin access control and is the only reader (1.7). Nothing under any other prefix is written by v2. `{sha256}` is the lowercase hex SHA-256 of the object bytes (canonical bytes for JSON, section 1.6; the file bytes for icons and the email logo). `{mediaId}` is the asset's UUID; `{filename}` is the uploaded name sanitized to `[A-Za-z0-9._-]`, at most 100 characters.
 
-`Content-Type` is `application/json; charset=utf-8` for JSON, `image/svg+xml` for SVG, the sniffed type for raster uploads, `image/webp` for variants. All JSON is written minified.
+`Content-Type` is `application/json; charset=utf-8` for JSON, `image/svg+xml` for SVG, the sniffed type for raster uploads, `image/webp` for variants, `image/png` for the email logo. All JSON is written minified.
 
 The API never reads any of these objects back. The database is the source of truth; the objects are projections.
 
@@ -152,7 +153,8 @@ The API hands the same bytes to the CDN PUT and to the hub publish (section 2.6)
   "accuracyM": 6,
   "recordedAt": "2026-12-22T01:31:07.000Z",
   "receivedAt": "2026-12-22T01:31:07.412Z",
-  "publishedAt": "2026-12-22T01:31:07.430Z"
+  "publishedAt": "2026-12-22T01:31:07.430Z",
+  "onlineCount": 214
 }
 ```
 
@@ -173,6 +175,7 @@ Keys appear in this order.
 | `recordedAt` | `rfc3339 \| null` | same as `seq` | The fix time the beacon sent. Informational; it never decides anything. |
 | `receivedAt` | `rfc3339 \| null` | same as `seq` | When the API stored the update. |
 | `publishedAt` | `rfc3339` | never | When this object was built. Used for the "last update" display and the tie-break below. |
+| `onlineCount` | `int \| null` | the count is not being published: `eventStatusId` is not 3, `hubEnabled` is false, or the gateway count read failed, timed out, or is not configured | How many sockets are subscribed to the site's `<service>:location` channel, from the gateway's `GET /internal/presence/<service>:location/count` (7.4). The site shows the count only while it is non-null and hides it otherwise; the map section's `overlays.onlineCount` hides it on a page. |
 
 Rules:
 
@@ -186,6 +189,7 @@ Rules:
   - Otherwise replace.
 
   `publishedAt` comparisons are ordinal string comparisons; the canonical format (fixed width, three fractional digits, `Z`) makes that equivalent to time order. This makes the hub and the poll safe to mix for a browser that already holds the newer object; the CDN copy is corrected by the rewrite rule in 7.4, because an ingest PUT built before a status change can land after the admin node's PUT.
+- `onlineCount` is informational and never takes part in the apply rule; a write that could not read the count carries null rather than waiting for it.
 - Nothing on this object is derived by the site except the page choice from `eventStatusId`.
 
 ### 1.3 Snapshot: `snapshots/{sha256}.json`
@@ -341,9 +345,18 @@ Pages appear in `navPosition` asc, `id` asc; sections in `position` asc, `id` as
 **Shared primitives**, defined once in `contracts/schema/primitives.schema.json` and referenced by every kind:
 
 ```ts
-type Icon = { source: "library"; id: string } | { source: "media"; id: string };
-  // library: an id from the icons map; media: the id of a ready media asset of kind "svg"
-type MediaRef = { mediaId: string; alt: string | null };      // alt null means the asset's own alt
+type Icon = { source: "library"; id: string; display?: Display | null } | { source: "media"; id: string; display?: Display | null };
+  // library: an id from the icons map; media: the id of a ready media asset of any kind
+type MediaRef = { mediaId: string; alt: string | null; display?: Display | null };  // alt null means the asset's own alt
+type Display = {                                               // every key optional; unknown keys are rejected
+  sizePx?: number;                                             // integer, 12 to 600
+  fit?: "contain" | "cover";
+  shape?: "none" | "circle" | "rounded" | "square";
+  paddingPx?: number;                                          // integer, 0 to 48
+  background?: "none" | "surface" | "muted" | "accent" | "night";
+  shadow?: boolean;
+  align?: "start" | "center" | "end";
+};
 type Link = { label: Inline; href: string; icon: Icon | null; newTab: boolean };
   // href: absolute http or https URL, a mailto: address, or a site path starting with "/" (a page slug, optionally "#anchor")
 type Inline = string;                                          // constrained inline markdown, below; 1 to 5000 characters
@@ -355,6 +368,10 @@ type Presentation = {
   iconBefore: Icon | null;
   iconAfter: Icon | null;
   anchor: string | null;                                       // ^[a-z0-9]+(-[a-z0-9]+)*$, unique within a page
+  card?: boolean | null;                                       // absent or null means true: the section renders in a card; never applied to `map`
+  iconSize?: "sm" | "md" | "lg" | "xl" | null;                 // size of iconBefore and iconAfter; absent or null means "sm"
+  cardOpacityLight?: number | null;                            // integer, 0 to 100; the card fill's opacity in the light theme; absent or null means the sitewide value
+  cardOpacityDark?: number | null;                             // integer, 0 to 100; the card fill's opacity in the dark theme; absent or null means the sitewide value
 };
 type Block =
   | { kind: "heading"; level: 1 | 2 | 3; text: Inline; icon: Icon | null }
@@ -367,14 +384,18 @@ type Block =
   | { kind: "divider"; style: "line" | "snowflakes" | "lights" };
 ```
 
-**Inline markdown.** `**bold**`, `*italic*`, `\`code\``, `[label](href)` with the same href rules as `Link`, a line break as a newline character, an icon as `{icon:<library-id>}` or `{icon:media:<mediaId>}`, and the placeholders `{event:name}`, `{event:year}`, `{event:scheduledAt}` (filled from `snapshot.event`; blank when there is no current event; `scheduledAt` formatted by the site in `America/Denver`). Everything else is literal text. No raw HTML is stored or rendered; the site's inline parser produces React elements, never `innerHTML`.
+`card` and `iconSize` are optional: the API stores and publishes them only when set, and a reader treats an absent or null value as the default. The site never cards the `map` section whatever `card` says. The contract names the sizes; the pixel size of each one is the site's (site.md), not the contract's.
+
+`display` is an optional, bounded display setting on any `Icon` or `MediaRef`; the API stores and publishes it only when set, and validates it on every write (an out-of-range value is `400 validation_failed`). The site applies it where it draws the icon or the image, and `sizePx`, when set, wins over preset sizes such as `iconSize`, a hero's `iconSize`, an `icon` block's `size`, or a `media` block's `size`. A key left out keeps the site's default for that place. The schema writes the lower bounds of `sizePx` and `paddingPx` as `exclusiveMinimum` (11 and -1) so draft validation, which drops `minimum`, still enforces them.
+
+**Inline markdown.** `**bold**`, `*italic*`, `\`code\``, `[label](href)` with the same href rules as `Link`, a line break as a newline character, an icon as `{icon:<library-id>}` or `{icon:media:<mediaId>}`, and the placeholders `{event:name}`, `{event:year}`, `{event:scheduledAt}` (filled from `snapshot.event`; blank when there is no current event; `scheduledAt` formatted by the site in the viewer's timezone). Everything else is literal text. No raw HTML is stored or rendered; the site's inline parser produces React elements, never `innerHTML`.
 
 **Section kinds.** One schema per kind at `contracts/schema/sections/<kind>.schema.json` (data) and, for kinds with items, `<kind>.item.schema.json`. `live` kinds carry configuration and read the live object and the snapshot; `content` kinds carry everything they render.
 
 | Kind | Live | `data` | Items | Rule |
 |---|---|---|---|---|
 | `rich_text` | no | `{ blocks: Block[] }` (1 to 200) | none | |
-| `hero` | no | `{ title: Inline; tagline: Inline \| null; icon: Icon \| null; links: Link[]; height: "short" \| "tall" }` (`links` 0 to 2) | none | the background image is `presentation.background` with `kind: "media"`, like any section |
+| `hero` | no | `{ title: Inline; tagline: Inline \| null; icon: Icon \| null; links: Link[]; height: "short" \| "tall"; iconSize?: "sm" \| "md" \| "lg" \| "xl" \| null; showLogo?: boolean \| null }` (`links` 0 to 2; `iconSize` sizes `icon`, absent or null means `"sm"`; `showLogo` true draws the site settings `logoMedia` in place of `icon` at `iconSize`, absent or null means false) | none | the background image is `presentation.background` with `kind: "media"`, like any section |
 | `media` | no | `{ layout: "single" \| "grid" \| "carousel"; columns: 2 \| 3 \| 4 }` | `{ media: MediaRef; caption: Inline \| null; link: Link \| null }` (1 to 50) | |
 | `links` | no | `{ heading: Inline \| null; style: "buttons" \| "cards" \| "list" }` | `{ link: Link; description: Inline \| null }` (1 to 50) | |
 | `icon_row` | no | `{ size: "sm" \| "md" \| "lg"; spacing: "tight" \| "normal" \| "loose" }` | `{ icon: Icon; label: Inline \| null }` (1 to 30) | |
@@ -383,7 +404,7 @@ type Block =
 | `countdown` | yes | `{ heading: Inline \| null }` | none | reads `snapshot.event.scheduledAt`; renders nothing unless `live.eventStatusId` is 2 and `now < scheduledAt` |
 | `event_times` | yes | `{ fields: ("scheduledAt" \| "wentLiveAt" \| "endedAt" \| "airborneFor")[]; labels: { scheduledAt: Inline; wentLiveAt: Inline; endedAt: Inline; airborneFor: Inline } }` (`fields` 1 to 4, distinct) | none | each field renders only when its value exists; `airborneFor` is the elapsed time since `wentLiveAt` while status is 3 |
 | `latest_message` | yes | `{ heading: Inline \| null; style: "card" \| "ticker" }` | none | reads `snapshot.event.latestMessage`; renders nothing when null |
-| `map` | yes | `{ themes: string[]; defaultTheme: string; defaultCenter: { lat: number; lng: number }; defaultZoom: number; controls: { themePicker: boolean; terrain: boolean; snow: boolean; flightHistory: boolean; timeLabels: boolean; location: boolean; dataRow: boolean }; flightHistoryDefault: boolean; overlays: { liveIndicator: boolean; liftoffTimer: boolean; latestMessage: boolean; leaderboardPanel: boolean; sponsorCarousel: boolean; cookieControl: boolean; distanceChip: boolean } }` (`themes` 1 to 10 from the site's theme registry; `defaultTheme` in `themes`; `defaultZoom` 3 to 18; `flightHistoryDefault` defaults false) | none | allowed only on the page with role `live`; reads the live object and `snapshot.event.flightHistory`; the full-viewport live screen of site.md section 8 |
+| `map` | yes | `{ themes: string[]; defaultTheme: string; defaultCenter: { lat: number; lng: number }; defaultZoom: number; controls: { themePicker: boolean; terrain: boolean; snow: boolean; flightHistory: boolean; timeLabels: boolean; location: boolean; dataRow: boolean }; flightHistoryDefault: boolean; overlays: { liveIndicator: boolean; liftoffTimer: boolean; latestMessage: boolean; leaderboardPanel: boolean; sponsorCarousel: boolean; cookieControl: boolean; distanceChip: boolean; onlineCount?: boolean } }` (`themes` 1 to 10 from the site's theme registry; `defaultTheme` in `themes`; `defaultZoom` 3 to 18; `flightHistoryDefault` defaults false; `overlays.onlineCount` absent means true and shows the live object's `onlineCount` while it is non-null) | none | allowed only on the page with role `live`; reads the live object and `snapshot.event.flightHistory`; the full-viewport live screen of site.md section 8 |
 | `leaderboard` | yes | `{ heading: Inline \| null; variant: "panel" \| "full"; emptyText: Inline }` | none | reads `live.cookieTally` joined with `snapshot.cookieTypes` |
 | `sponsor_carousel` | yes | `{ heading: Inline \| null; logoWidth: 480 \| 960 }` | none | reads `snapshot.sponsors` and `lingerMs` |
 | `sponsor_grid` | yes | `{ heading: Inline \| null; columns: 2 \| 3 \| 4; showYears: boolean; emptyText: Inline }` | none | reads `snapshot.sponsors` |
@@ -401,17 +422,29 @@ type SiteSettings = {
   homeNavLabel: Inline;                      // required; the nav entry for "/"
   logo: Icon | null;
   favicon: Icon | null;
-  theme: { snowDefault: boolean; lightsDefault: boolean; ornaments: boolean };   // seasonal layers and the background ornaments only; colours, fonts, and light/dark are the site's own (site.md 7.7)
+  theme: {                                   // seasonal layers, the background ornaments, and the card fill opacity only; colours, fonts, and light/dark are the site's own (site.md 7.7)
+    snowDefault: boolean;
+    lightsDefault: boolean;
+    ornaments: boolean;
+    cardOpacityLight?: number | null;        // integer, 0 to 100; the card fill's opacity in the light theme; absent or null means 100
+    cardOpacityDark?: number | null;         // integer, 0 to 100; the card fill's opacity in the dark theme; absent or null means 100
+  };
   navExtraLinks: Link[];                     // 0 to 5, appended after the pages
   footerLinks: Link[];                       // 0 to 10
   footerText: Inline | null;
   contactEmail: string | null;               // shown on the site; the API's notification inbox is configuration
   donateUrl: string | null;                  // absolute https URL
   analyticsEnabled: boolean;
+  logoMedia?: MediaRef | null;               // the site logo image; absent or null means the site keeps its built-in mark
+  headerShowsSiteName?: boolean | null;      // absent or null means true: the header shows siteName next to the logo
 };
 ```
 
-**Validation, two levels.** The panel and the API run the same schemas. *Draft* validation, applied to every working-set write, is the kind's schema with `required`, `minLength`, `minItems`, and `minimum` removed at every level: types, enums, and unknown properties are enforced, incompleteness is not, and references are not checked. *Publish* validation, applied by `POST /admin/content/publish` and reported by `GET /admin/content/status`, is the full schema plus: every `MediaRef` and media-sourced `Icon` names a media asset with `state = ready` (and kind `svg` for icons); every library icon id exists; every `Link.href` and inline link matches the href rule; a site path href names an existing, non-hidden page slug; `anchor` values are unique within a page; `map` sections sit only on the `live` page; `settings` satisfies its schema. Problems are reported as `{ path, message }` with `path` a JSON pointer inside the section's `data` or `presentation`, the item's `data`, or the settings.
+**Card opacity.** The card's fill can be translucent, per theme, sitewide (`settings.theme.cardOpacityLight` and `cardOpacityDark`) and per section (`presentation.cardOpacityLight` and `cardOpacityDark`). All four are optional integers from 0 (a clear fill) to 100 (an opaque fill); the published document carries them only when set. For the theme in use the site resolves the value in this order: the section's value, then the sitewide value, then 100. The value is the alpha of the card's fill only: the panel colour or the `token` background. A `media` background image is the fill and is unaffected. The border, the shadow, and the content (text, icons, images, controls) stay opaque; only the fill's alpha changes. A section with `card` false has no card, so its opacity values have no effect. The range holds at both validation levels: a write with a value outside 0 to 100 is `400 validation_failed` at the field's path.
+
+`logoMedia` and `headerShowsSiteName` are optional: the published document carries them only when they are not null, and a reader treats an absent or null value as the default. `logoMedia` is a `MediaRef` like any other: publish requires a ready asset, and the snapshot's `media` map carries it. `logo` stays as it is. The hero's `showLogo: true` draws the `logoMedia` image in place of the hero `icon`, sized by the hero's `iconSize`; the pixel size of each size name is the site's (site.md), not the contract's.
+
+**Validation, two levels.** The panel and the API run the same schemas. *Draft* validation, applied to every working-set write, is the kind's schema with `required`, `minLength`, `minItems`, and `minimum` removed at every level: types, enums, and unknown properties are enforced, incompleteness is not, and references are not checked; the card opacity fields keep their 0 to 100 range at this level too. *Publish* validation, applied by `POST /admin/content/publish` and reported by `GET /admin/content/status`, is the full schema plus: every `MediaRef` and media-sourced `Icon` names a media asset with `state = ready`; every library icon id exists; every `Link.href` and inline link matches the href rule; a site path href names an existing, non-hidden page slug; `anchor` values are unique within a page; `map` sections sit only on the `live` page; `settings` satisfies its schema. Problems are reported as `{ path, message }` with `path` a JSON pointer inside the section's `data` or `presentation`, the item's `data`, or the settings.
 
 **Extensibility rules.** A new section or block kind is one schema file, one registry entry, and one component on each side; nothing else changes. New optional fields are added to a schema with a default and need no migration, no republish, and no panel change (forms are generated from the schemas). The primitives are the only shared vocabulary; a kind never invents its own shape for an icon, a link, a media reference, or text. `schemaVersion` on the document changes only when a published document could no longer be read by the previous site; the site treats an unknown value like an unknown snapshot version (1.9).
 
@@ -425,14 +458,26 @@ type MediaEntry = {
   alt: string;                               // the asset's alt text, may be empty
   variants: { [width: string]: string };     // "480", "960", "1600": absolute CDN URLs of the WebP variants that exist; {} for svg and gif
   dzi: string | null;                        // absolute CDN URL of the Deep Zoom descriptor when a tile pyramid exists, else null
+  dark: { url: string; variants: { [width: string]: string } } | null;   // the dark mode version, same rules as url and variants; null when none
+  invertInDark: boolean;                     // true: the site inverts the asset's colors in dark mode
+  small: {                                   // the small screen version; null when none
+    url: string; variants: { [width: string]: string };                   // same rules as url and variants
+    dark: { url: string; variants: { [width: string]: string } } | null;  // the small version's own dark version
+    invertInDark: boolean;                                                // the small version's own switch
+  } | null;
+  smallMediaId: string | null;               // the small version's id when small is not null, else null
 };
 ```
+
+**Dark mode.** Any asset can carry a dark mode version (another ready asset, `MediaAsset.darkMediaId`) and an "invert in dark mode" switch (`invertInDark`), both off by default. Wherever the site draws an entry in dark mode it draws `dark` in its place when `dark` is not null (with `srcset` from `dark.variants` the same way), otherwise it inverts the image when `invertInDark` is true, otherwise it draws the entry as it is. The dark version's `url` and `variants` are embedded in the entry, so the dark version needs no entry of its own; it is referenced for orphan collection (7.6) while it is a ready asset's dark version. A dark version that is not `ready` is left out (`dark: null`).
+
+**Small screens.** Any asset can carry a small screen version (another ready asset, `MediaAsset.smallMediaId`), off by default. Wherever the site draws an entry under its 760 px cut it draws `small` in its place when `small` is not null (with `srcset` from `small.variants` the same way), otherwise it draws the entry as it is. The small version carries its own dark resolution: in dark mode under the cut the site draws `small.dark` when it is not null, otherwise it inverts the small version when `small.invertInDark` is true, otherwise it draws `small` as it is, so small composes with dark from the one entry with no second lookup. The small version's `url`, `variants`, and dark resolution are embedded in the entry, so the small version needs no entry of its own; it is referenced for orphan collection (7.6) while it is a ready asset's small version. A small version that is not `ready` is left out (`small: null`, `smallMediaId: null`).
 
 A variant exists only when the source is a raster image wider than that width; a 700 px upload has `variants: { "480": ... }`. The site renders a `MediaRef` as `<img>` with `srcset` from the variants plus the original at its own width and `sizes` from the section's width; it never constructs a media URL and never inlines SVG. Nothing in v2 overwrites or invalidates a media object.
 
 **Tile pyramid.** A raster asset whose longest side is 2048 px or more also gets a Deep Zoom pyramid at confirm: `media/{mediaId}/dzi/poster.dzi` (the XML descriptor: tile size 254, overlap 1, format `png`) and `media/{mediaId}/dzi/poster_files/{level}/{col}_{row}.png` down to level 0, lossless PNG (the tiles are the poster's own pixels; the top level is the original at 1:1 and the viewer never zooms past it), every object immutable. A descriptor with `Format="jpg"` belongs to an asset confirmed before the PNG pyramid; the viewer reads the format from the descriptor. `dzi` is the descriptor's absolute CDN URL; the tiles resolve from the descriptor's own directory, as the Deep Zoom format defines. The pyramid lives with the asset: a new poster is a new asset with a new id and new URLs, so a viewer never sees a stale tile; deleting the asset deletes the pyramid with the rest of `media/{mediaId}/`. Smaller rasters have `dzi: null` and a viewer falls back to the original image.
 
-The icon library is a directory of SVG files in the API repository, `icons/<id>.svg`, each with a name and tags in `icons/library.json`. `icons` in the snapshot maps every id to `https://<cdn-domain>/icons/{sha256}.svg`. The library is written to the bucket by the migrating node under the migration lock whenever its hash differs from `icon_library_state.library_sha256`, followed by a snapshot rebuild, so a deploy that adds icons needs no operator action. Uploaded icons are media assets of kind `svg` and resolve through `media`. Every SVG, library or uploaded, passes the validator in 4.5 Media and renders through `<img>` only.
+The icon library is a directory of SVG files in the API repository, `icons/<id>.svg`, each with a name and tags in `icons/library.json`. `icons` in the snapshot maps every id to `https://<cdn-domain>/icons/{sha256}.svg`. The library is written to the bucket by the migrating node under the migration lock whenever its hash differs from `icon_library_state.library_sha256`, followed by a snapshot rebuild, so a deploy that adds icons needs no operator action. Uploaded icons are media assets of any kind and render through `<img>` from the media entry.
 
 ### 1.4 Flight recording: `routes/{sha256}.json`
 
@@ -858,7 +903,7 @@ Capabilities, one per endpoint group of 4.5, each named after its heading: `even
 | Body limits | 64 KB for JSON, 256 KB for section, item, and site settings bodies, 5 MB for route uploads, 2 MB for beacon logs, 8 KB for heartbeats. Media bytes never pass through the API (presigned upload, 4.5 Media): 20 MB for raster and GIF, 1 MB for SVG, checked at confirm. Over the limit: `413 payload_too_large`. |
 | Auth headers | `X-Beacon-Key` (beacon), `Authorization: Bearer <id-token>` (person, admin), `Authorization: Bearer wak_…` (API key, 3.6). A request that carries `X-Beacon-Key` and `Authorization` is `400 validation_failed`. |
 | Common errors | `400 validation_failed`, `401 unauthenticated`, `403 forbidden`, `404 not_found`, `405` (no body), `413 payload_too_large`, `415 unsupported_media_type`, `429 rate_limited`, `500 internal_error`, `502 upstream_failed`. Listed per endpoint only when the endpoint adds a code. |
-| CORS | The API answers CORS for the exact origins in `WMSFO_CORS_ORIGINS`: methods `GET, POST, PUT, PATCH, DELETE`, headers `Authorization, Content-Type, X-Beacon-Key, X-App-Version`, `Access-Control-Max-Age: 600`, no credentials. Red-Nose is not a browser and needs none. |
+| CORS | The API answers CORS for the exact origins in `WMSFO_CORS_ORIGINS`: methods `GET, POST, PUT, PATCH, DELETE`, headers `Authorization, Content-Type, X-Beacon-Key, X-App-Version, If-None-Match`, exposed response header `ETag`, `Access-Control-Max-Age: 600`, no credentials. Red-Nose is not a browser and needs none. |
 | Client IP | Taken from `X-Forwarded-For` counting `WMSFO_TRUSTED_PROXY_HOPS` (default 2: the load balancer and the gateway proxy) entries from the right. Used for rate limiting and contact-message records only. |
 | `serverTime` | Every `2xx` response to a beacon endpoint carries `serverTime` (rfc3339), stamped when the response body is serialized, after any transaction has committed. Red-Nose uses it for clock skew (section 9). |
 | Rate limits | Token buckets, per node (not fleet-wide), keyed as shown. Over budget: `429` with `Retry-After` and `details.retryAfterSeconds`. The callback paths and `/api/health` are exempt. |
@@ -874,7 +919,7 @@ Capabilities, one per endpoint group of 4.5, each named after its heading: `even
 | `POST /subscriptions/verify`, `POST /subscriptions/unsubscribe` | client IP | 30/min | 30 |
 | `POST /cookies` | person id | 1/s | 3 |
 | `POST /me/subscriptions`, `.../resend-verification` | person id | 5/hour | 5 |
-| `GET /preview/document` | client IP | 60/min | 60 |
+| `GET /preview/document` | client IP | 240/min | 60 |
 | `POST /admin/media/upload-url` | person id | 30/min | 30 |
 | `/admin/*` | person id, or API key id | 20/s | 40 |
 
@@ -889,6 +934,7 @@ type AlertItem = { id: number; subscriptionId: number; address: string; kind: "e
 type Event = {
   id: number; year: number; name: string; statusId: number; isCurrent: boolean;
   scheduledAt: string | null; wentLiveAt: string | null; endedAt: string | null;
+  scheduleTimeZone: string | null;   // admin only: the IANA zone id (e.g. America/Denver) scheduledAt was entered in; null means unset
   fundsPercent: number; routeId: number | null; routeUrl: string | null;
   routeImageMediaId: string | null; routeImage: MediaAsset | null;
   statusNotifiedAt: string | null;   // when the current status was last announced to subscribers (a status change with notify, or POST .../notify); null since the last change otherwise
@@ -945,13 +991,16 @@ type IconInfo = { id: string; name: string; tags: string[]; url: string };
 type MediaAsset = {
   id: string; filename: string; contentType: string; kind: "raster" | "svg" | "gif"; state: "pending" | "ready" | "orphaned";
   sizeBytes: number | null; width: number | null; height: number | null; sha256: string | null; alt: string; title: string;
-  url: string; variants: { [width: string]: string }; dziUrl: string | null; uploadedBy: string; createdAt: string; confirmedAt: string | null;
+  url: string; variants: { [width: string]: string }; dziUrl: string | null; darkMediaId: string | null; invertInDark: boolean; smallMediaId: string | null;
+  uploadedBy: string; createdAt: string; confirmedAt: string | null;
   unreferencedSince: string | null; orphanedAt: string | null;
   audit: AuditStamp | null;
 };
   // dziUrl: absolute CDN URL of the Deep Zoom descriptor when the asset has a tile pyramid (1.3b), else null
+  // darkMediaId: the asset drawn in this one's place in dark mode (1.3b), else null; invertInDark: false by default
+  // smallMediaId: the asset drawn in this one's place on small screens (1.3b), else null
 type UploadTicket = { media: MediaAsset; uploadUrl: string; method: "PUT"; headers: { [name: string]: string }; expiresAt: string };
-type MediaUsage = { draftPages: { id: number; slug: string; title: string }[]; versionCount: number; sponsors: { id: number; name: string }[]; cookieTypes: { id: number; name: string }[]; siteSettings: boolean };
+type MediaUsage = { draftPages: { id: number; slug: string; title: string }[]; versionCount: number; sponsors: { id: number; name: string }[]; cookieTypes: { id: number; name: string }[]; siteSettings: boolean; darkVersionOf: { id: string; filename: string }[] };
 type ContentVersionInfo = { id: number; sha256: string; label: string | null; publishedBy: string; publishedAt: string; pageCount: number; sectionCount: number; audit: AuditStamp | null };
 type ProblemRef = Problem & { pageId: number | null; sectionId: number | null; itemId: number | null };   // all null: site settings
 type ContentStatus = { published: ContentVersionInfo | null; draftSha256: string; hasUnpublishedChanges: boolean; problems: ProblemRef[]; draftUpdatedAt: string | null };
@@ -1051,7 +1100,7 @@ Rules: `name` 1 to 100, `email` a valid address 3 to 254, `message` 1 to 2000. S
 
 **`POST /subscriptions/unsubscribe`**. The token comes from either place: the query string `?token=wsu_...` or a JSON body `{ "token": "wsu_..." }`. The query form exists for RFC 8058: the `List-Unsubscribe` header names `https://<api-domain>/subscriptions/unsubscribe?token=wsu_...` and mail clients POST the form body `List-Unsubscribe=One-Click` to it; the API accepts `application/x-www-form-urlencoded` there and ignores the form body. The site page `/alerts/unsubscribe` reads `token` from its query string and sends the JSON form. Sets `unsubscribed_at`. `204`. Idempotent. Unknown token: `404 not_found`.
 
-**`GET /preview/document?token=wpv_...`**. The one public read, used only by the site's `/preview` route inside the admin panel's preview frame (4.5 Content). Answers `200 ContentBundle`: the working set as it would publish (hidden rows omitted), the media map for it, and the icon map, with `Cache-Control: no-store`. Unknown or expired token: `404 preview_token_invalid`. Rate limited per client IP (4.0).
+**`GET /preview/document?token=wpv_...`**. The one public read, used only by the site's `/preview` route inside the admin panel's preview frame (4.5 Content). Answers `200 ContentBundle`: the working set as it would publish (hidden rows omitted), the media map for the media it references plus the media the snapshot's media map adds beyond the content (sponsor logos, cookie type media icons, the current event's route poster; 1.3b), and the icon map, with `Cache-Control: no-store` and a strong `ETag`: the quoted lowercase sha256 hex of the exact response body. A request whose `If-None-Match` carries that `ETag` answers `304 Not Modified` with the same `ETag` and no body, so a caller polling an unchanged draft downloads nothing; any draft change changes the body and so the `ETag`. Unknown or expired token: `404 preview_token_invalid`. Rate limited per client IP (4.0).
 
 **`POST /qr-codes/{tag}/scans`**. One printed-code visit (4.5a Public). Body `{ "referrer": "https://..." }`, optional. Always `204`. Sent by the site's `/q/:tag` route with `navigator.sendBeacon` before it navigates.
 
@@ -1089,9 +1138,9 @@ Each group of endpoints names its policy (3.1): **Editor** admits both groups, *
 | Method and path | Body | Success | Endpoint-specific errors |
 |---|---|---|---|
 | `GET /admin/events` | | `200 { "items": Event[] }` ordered `year` desc | |
-| `POST /admin/events` **[snapshot]** | `{ "year": 2026, "name": "...", "scheduledAt": null, "fundsPercent": 0, "routeId": null, "inheritRoute": true }` (`year`, `name`, `inheritRoute` required; `scheduledAt` defaults null; `fundsPercent` defaults 0; `routeId` defaults null; `year` 2000 to 2100 unique; `name` 1 to 200; `fundsPercent` 0 to 100) | `201 Event` with `statusId` 1, `isCurrent` false. `inheritRoute: true` requires `routeId` null (`400` otherwise) and copies the `route_id` of the event with the greatest `year` that has one (none: no route); `inheritRoute: false` uses `routeId` as given. The route image is never inherited; `route_image_media_id` starts null and is set with `PATCH`. | `400`, `404 not_found` (routeId), `409 year_taken` |
+| `POST /admin/events` **[snapshot]** | `{ "year": 2026, "name": "...", "scheduledAt": null, "fundsPercent": 0, "routeId": null, "inheritRoute": true, "scheduleTimeZone": null }` (`year`, `name`, `inheritRoute` required; `scheduledAt` defaults null; `fundsPercent` defaults 0; `routeId` defaults null; `scheduleTimeZone` defaults null and is an IANA zone id such as `America/Denver`, `400 validation_failed` on an unknown id; `year` 2000 to 2100 unique; `name` 1 to 200; `fundsPercent` 0 to 100) | `201 Event` with `statusId` 1, `isCurrent` false. `inheritRoute: true` requires `routeId` null (`400` otherwise) and copies the `route_id` of the event with the greatest `year` that has one (none: no route); `inheritRoute: false` uses `routeId` as given. The route image is never inherited; `route_image_media_id` starts null and is set with `PATCH`. | `400`, `404 not_found` (routeId), `409 year_taken` |
 | `GET /admin/events/{id}` | | `200 Event` | |
-| `PATCH /admin/events/{id}` **[snapshot]** | Any of `name`, `year`, `scheduledAt`, `wentLiveAt`, `endedAt`, `fundsPercent`, `routeId`, `routeImageMediaId` (a ready raster media asset id; an empty string unlinks; null or absent leaves it unchanged, the same convention as `logoMediaId`) | `200 Event` | `404` (event, route, or media), `409 year_taken`, `409 scheduled_at_required` (`scheduledAt: null` while `statusId` is 2), `409 media_not_ready`, `400 validation_failed` (an svg or gif asset as the route image) |
+| `PATCH /admin/events/{id}` **[snapshot]** | Any of `name`, `year`, `scheduledAt`, `wentLiveAt`, `endedAt` (each: an RFC 3339 timestamp sets it, null clears it, absent leaves it unchanged; `400 validation_failed` on anything else), `fundsPercent`, `routeId`, `routeImageMediaId` (a ready raster media asset id; an empty string unlinks; null or absent leaves it unchanged, the same convention as `logoMediaId`), `scheduleTimeZone` (an IANA zone id sets it, null clears it, absent leaves it unchanged; `400 validation_failed` on an unknown id) | `200 Event` | `404` (event, route, or media), `409 year_taken`, `409 scheduled_at_required` (`scheduledAt: null` while `statusId` is 2), `409 media_not_ready`, `400 validation_failed` (an svg or gif asset as the route image) |
 | `DELETE /admin/events/{id}` **[snapshot]** | | `204`; deletes its messages, cookies, status history, locations, and pending alert outbox rows | `404`, `409 event_live` (status 3), `409 event_current` (`isCurrent`; make another event current first) |
 | `POST /admin/events/{id}/current` **[snapshot]** | none | `200 Event` (`isCurrent` true; the previous current event's flag cleared in the same transaction). Idempotent: on the already-current event, `200 Event` with no snapshot rebuild and no live-object write, in every status. | `409 current_event_live` (another event is current and live) |
 | `POST /admin/events/{id}/status` **[snapshot]** | `{ "statusId": 3, "notify": true, "message": null }` (`statusId` and `notify` required; `message` optional, 1 to 1000 characters, the custom text the alert carries instead of the stock paragraph, ignored when `notify` is false) | `200 Event` | `400` (unknown status), `409 event_status_unchanged` (same status), `409 event_not_current` (3 requested and `isCurrent` false), `409 another_event_live` (3 requested while another event has status 3), `409 scheduled_at_required` (2 requested and `scheduledAt` null), `409 no_healthy_beacon` (3 requested and no beacon is active, or the active beacon is revoked or stale; `details.beacon` carries the active beacon's `id`, `name`, `lastSeenAt`, `staleSince`, or null when none is active) |
@@ -1170,7 +1219,7 @@ An API key request on these three endpoints is `403 forbidden` whatever its capa
 | Method and path | Body | Success | Errors |
 |---|---|---|---|
 | `GET /admin/cookie-types` | | `200 { "items": CookieType[] }` by `sort`, `id` | |
-| `POST /admin/cookie-types` **[snapshot]** | `{ "name": "...", "sort": 10, "active": true, "icon": null }` (`name` 1 to 100; `sort` -1000 to 1000; `icon` an `Icon` or null; all four required) | `201 CookieType` | `409 event_live`, `404` (media icon), `409 media_not_ready`, `400` (media icon not svg, unknown library id) |
+| `POST /admin/cookie-types` **[snapshot]** | `{ "name": "...", "sort": 10, "active": true, "icon": null }` (`name` 1 to 100; `sort` -1000 to 1000; `icon` an `Icon` or null; all four required) | `201 CookieType` | `409 event_live`, `404` (media icon), `409 media_not_ready`, `400` (unknown library id) |
 | `PATCH /admin/cookie-types/{id}` **[snapshot]** | subset of `name`, `sort`, `active`, `icon` | `200 CookieType` | `404`, `409 event_live`, `409 media_not_ready`, `400` |
 | `DELETE /admin/cookie-types/{id}` **[snapshot]** | | `204`; its cookies are deleted with it (the tallies drop by their count; the impact says how many and warns while live) | `404`, `409 event_live` (cookie type writes are locked while an event is live) |
 
@@ -1221,12 +1270,12 @@ The six role pages are created by the seed (sql.md 6) with slugs `no-event`, `pl
 | Method and path | Body | Success | Errors |
 |---|---|---|---|
 | `GET /admin/content/status` | | `200 ContentStatus`: the newest version, the working set's hash, whether they differ, and every publish-level problem in the working set | |
-| `GET /admin/content/draft` | | `200 ContentBundle` for the working set (what a publish would produce) | |
+| `GET /admin/content/draft` | | `200 ContentBundle` for the working set (what a publish would produce); the media map holds the media the document references plus sponsor logos, cookie type media icons, and the current event's route poster, as in `GET /preview/document` | |
 | `POST /admin/content/publish` **[snapshot]** | `{ "label": "December copy" }` (`label` null or 1 to 100) | `201 ContentVersionInfo`. Builds the document from the working set (hidden rows omitted, 1.3a order), validates at the publish level, inserts `content_version` with the referenced media ids, deletes versions beyond the newest 50, rebuilds the snapshot, commits, writes the live object. | `422 content_invalid` (`details.problems: ProblemRef[]`), `409 content_unchanged` (hash equals the newest version's), `502 snapshot_write_failed` |
 | `GET /admin/content/versions` | | `200 { "items": ContentVersionInfo[] }` newest first | |
 | `GET /admin/content/versions/{id}` | | `200 ContentVersionInfo & { "document": ContentDocument }` | `404` |
 | `POST /admin/content/versions/{id}/restore` | none | `200 ContentStatus`. Replaces the working set (pages, sections, items, site settings draft) with the version's document; rows get new ids; role pages keep their roles; a place or a printed code that opens a page keeps opening the restored page with the same slug (a slug the version does not have leaves the link null, as deleting the page would). Nothing is published. | `404` |
-| `POST /admin/content/preview-token` | none | `201 PreviewToken`: `token` is `wpv_` plus 43 base64url characters, hashed at rest, valid 15 minutes, reusable until expiry; `url` is `<site-base-url>/preview?token=<token>` | |
+| `POST /admin/content/preview-token` | optional `{ ttlMinutes?: integer }`, 15 to 1440, 15 when the body or the field is absent | `201 PreviewToken`: `token` is `wpv_` plus 43 base64url characters, hashed at rest, valid `ttlMinutes` minutes (`expiresAt`), reusable until expiry; `url` is `<site-base-url>/preview?token=<token>` | |
 
 Preview: the panel loads `url` plus `&page=<slug>` in an iframe; the site's `/preview` route fetches `GET /preview/document?token=` (4.3), substitutes the bundle for `snapshot.content`, `media`, and `icons`, and renders the named page (a role page by its slug, whatever the current status) with the real live object and snapshot for the live sections. Changing a section in the panel and reloading the frame shows the change; nothing is published.
 
@@ -1241,14 +1290,14 @@ The pipeline is presign, upload, confirm. Media bytes never pass through the API
 | `POST /admin/media/{id}/confirm` | none | `200 MediaAsset` with `state: "ready"`. The API reads the object, checks the size against the ticket and the limit, sniffs the type (must match `contentType`), validates SVG (below), decodes raster with a 40-megapixel ceiling, records `width`, `height`, `sha256`, derives `w480`, `w960`, `w1600` WebP variants for raster narrower widths than the source (never for gif or svg), cuts the Deep Zoom tile pyramid for a raster whose longest side is 2048 px or more (1.3b), PUTs them all, removes the pending tag, and updates the row. | `404` (row), `404 upload_not_found` (object missing), `409 media_not_pending`, `413`, `400 validation_failed` (sniff mismatch, SVG rules, decode failure; the object is deleted and the row removed) |
 | `GET /admin/media/{id}` | | `200 MediaAsset` | `404` |
 | `GET /admin/media/{id}/usage` | | `200 MediaUsage` | `404` |
-| `PATCH /admin/media/{id}` **[snapshot]** | subset of `alt`, `title` | `200 MediaAsset` | `404` |
-| `DELETE /admin/media/{id}` | | `204`; deletes every object under `media/{id}/` and the row, in any state; every reference is cleared first (section and item image fields, sponsor logos, event posters, the site logo and favicon fall back to the library icon), listed under `unlinks` | `404` |
+| `PATCH /admin/media/{id}` **[snapshot]** | subset of `alt`, `title`, `darkMediaId` (the id of another `ready` asset, or `null` to clear), `invertInDark` (boolean), `smallMediaId` (the id of another `ready` asset, or `null` to clear) | `200 MediaAsset` | `404` (the asset, `darkMediaId`, or `smallMediaId`), `409 media_not_ready` (`darkMediaId` or `smallMediaId` not ready), `400 validation_failed` (`darkMediaId` or `smallMediaId` is the asset itself) |
+| `DELETE /admin/media/{id}` | | `204`; deletes every object under `media/{id}/` and the row, in any state; every reference is cleared first (section and item image fields, sponsor logos, event posters, the site logo and favicon fall back to the library icon, and the assets whose dark or small version it is, listed as "dark version of <filename>" or "small version of <filename>"), listed under `unlinks` | `404` |
 
-A ticket whose object never arrives expires by the bucket's lifecycle rule (tag `state=pending`, 1 day) and its row by the nightly cleanup (7.6). In use means referenced by the working set, by any retained version, by a sponsor, by a cookie type, or by the site settings draft.
+A ticket whose object never arrives expires by the bucket's lifecycle rule (tag `state=pending`, 1 day) and its row by the nightly cleanup (7.6). In use means referenced by the working set, by any retained version, by a sponsor, by a cookie type, by the site settings draft, or as another asset's dark version (`MediaUsage.darkVersionOf`, shown as "dark version of <filename>").
 
 SVG validation (library icons, uploaded SVG): the document is parsed without DTDs or external resolution and rejected with `400 validation_failed` on field `file` when the root element is not `svg`, or it contains a `script` or `foreignObject` element, any attribute whose name starts with `on`, or an `href` or `xlink:href` whose value starts with `http:`, `https:`, or `javascript:`. The stored bytes are the uploaded bytes.
 
-Orphan collection (leader chore, 7.6): a ready asset referenced nowhere gets `unreferencedSince`; after 30 days it is tagged `state=orphaned` on every object and marked `orphaned`; the lifecycle rule deletes the objects 7 days later and the chore deletes the row after 8. A reference appearing again during those 7 days removes the tag and returns the asset to `ready`. An orphaned asset is listed by `GET /admin/media?state=orphaned` so an editor can see what is about to go.
+Orphan collection (leader chore, 7.6): an asset that is a ready asset's dark version or small version counts as referenced; a ready asset referenced nowhere gets `unreferencedSince`; after 30 days it is tagged `state=orphaned` on every object and marked `orphaned`; the lifecycle rule deletes the objects 7 days later and the chore deletes the row after 8. A reference appearing again during those 7 days removes the tag and returns the asset to `ready`. An orphaned asset is listed by `GET /admin/media?state=orphaned` so an editor can see what is about to go.
 
 #### Icons (Editor)
 
@@ -1256,7 +1305,7 @@ Orphan collection (leader chore, 7.6): a ready asset referenced nowhere gets `un
 |---|---|
 | `GET /admin/icons` | `200 { "items": IconInfo[] }`: the built-in library, ordered by `name`; `url` is the CDN URL the snapshot carries |
 
-Uploaded icons are media assets of kind `svg` (`GET /admin/media?kind=svg`); the panel's icon picker shows both.
+Uploaded icons are any ready media assets; the panel's icon picker shows the library and the media library.
 
 #### Settings (Admin)
 
@@ -1394,7 +1443,7 @@ Actions are `create`, `update`, `delete` for the generic writes and the endpoint
 | `kind_not_allowed` | 409 | section create and move onto a page whose role the kind excludes |
 | `content_unchanged` | 409 | `POST /admin/content/publish` |
 | `content_invalid` | 422 | `POST /admin/content/publish`; `details.problems` |
-| `media_not_ready` | 409 | a sponsor or cookie type references a media asset that is not `ready` |
+| `media_not_ready` | 409 | a sponsor, cookie type, event poster, dark version, or small version references a media asset that is not `ready` |
 | `media_not_pending` | 409 | confirm on a non-pending asset |
 | `upload_not_found` | 404 | confirm when the object never arrived |
 | `preview_token_invalid` | 404 | `GET /preview/document` |
@@ -1438,6 +1487,7 @@ create table event (
   status_id     smallint not null references event_status (id),
   is_current    boolean not null default false,
   scheduled_at  timestamptz,
+  schedule_time_zone text,                        -- admin only: IANA zone id scheduled_at was entered in; null means unset; alert emails render in it (7.8)
   went_live_at  timestamptz,
   ended_at      timestamptz,
   funds_percent integer not null default 0 check (funds_percent between 0 and 100),
@@ -1977,6 +2027,8 @@ select key, value from app_setting;   -- on version change, and at least every 5
 
 Memory is refreshed from every row read. When `version` moved and `lastWrittenVersion` is not that version: if `wroteForLocationSinceVersionChange` is true, the node writes the live object once more from the refreshed memory, publishes it, and clears the flag; otherwise it refreshes memory only and neither writes nor publishes (1.8). When `version` did not move, the leader (7.5) compares the refreshed `cookieTally` with the tally in the object it last wrote and, while the event is live, writes and publishes the live object once when they differ, so a cookie reaches the CDN within a tick whether or not a beacon is sending locations. Every node converges within one tick, and the CDN copy is corrected within one tick when an ingest PUT built before a status change landed after the admin node's PUT.
 
+Online count. Every live-object write, whichever trigger (a stored location, an admin commit, a tick rewrite), fills `onlineCount` (1.2) only while the current event's status is 3 and `hub_enabled` is true; otherwise it writes null and makes no gateway call. While those hold, the writing node reads `GET <WMSFO_GATEWAY_INTERNAL_URL>/internal/presence/<service>:location/count` with `X-Gateway-Realtime-Token: <GATEWAY_REALTIME_TOKEN>` (the answer is `{ channel, count }`, 1 s timeout) and caches the answer, or the failure as null, for one second, so the write path costs each node at most one count read per second however many writes it makes. The write waits at most 250 ms for a read in flight; a slower read, a timeout, a non-2xx, a network error, or a missing token writes null, and the write is never failed or retried because of the count. A slow read still fills the cache for the next write.
+
 ### 7.5 Leadership
 
 Poll `GET <WMSFO_GATEWAY_INTERNAL_URL>/internal/leader` with `X-Gateway-Realtime-Token: <GATEWAY_REALTIME_TOKEN>` every 2 s with a 1 s timeout. Leader only when the latest answer is `2xx`, `isLeader` is true, and `evaluatedAt` is non-null and under 90 s old (the gateway re-evaluates leadership on its reconcile loop, every 30 s plus jitter, so the window covers two missed loops). Any non-2xx, timeout, network error, `evaluatedAt: null`, or staleness means follower immediately; `isLeader: true` is never carried across a missed poll. Leadership may overlap for a loop during a hand-off, so every chore is idempotent. `WMSFO_FORCE_LEADER=true` makes the node leader without a gateway (local runs only).
@@ -1988,7 +2040,7 @@ Poll `GET <WMSFO_GATEWAY_INTERNAL_URL>/internal/leader` with `X-Gateway-Realtime
 | Outbox publish | 2 s | `update outbox set claimed_at = now(), attempts = attempts + 1 where id in (select id from outbox where published_at is null and attempts < 5 and (claimed_at is null or claimed_at < now() - interval '2 minutes') order by id limit 50 for update skip locked) returning *`; process each row per 7.7; on success `update outbox set published_at = now() where id = $1`; on failure set `last_error`. A row that reaches 5 attempts stays unpublished and appears in the logs. |
 | Alert send | 5 s | up to `5 * WMSFO_ALERT_SEND_PER_SEC` `alert_delivery` rows with `sent_at` null and `attempts < 5`, oldest first, sent through SES at no more than `WMSFO_ALERT_SEND_PER_SEC` per second; on success set `sent_at`, `ses_message_id`; on failure set `last_error`, `attempts += 1` |
 | Stale beacon flag | 15 s | `update beacon set stale_since = now() where revoked_at is null and stale_since is null and last_seen_at is not null and greatest(coalesce(last_heartbeat_at, '-infinity'), coalesce(last_location_at, '-infinity')) < now() - make_interval(secs => <beacon_stale_after_s>)` (a heartbeat or a stored location clears the flag, 4.2 and 7.2) |
-| Media orphan collection | 1 h | compute the referenced media id set (working set, every retained `content_version.media_ids`, `sponsor.logo_media_id`, media-sourced `cookie_type.icon`, the site settings draft); set `unreferenced_since = now()` on `ready` rows outside the set that have none, clear it on rows inside the set; tag and mark `orphaned` the rows whose `unreferenced_since` is older than 30 days; untag and return to `ready` any `orphaned` row that is back in the set; delete rows `orphaned` more than 8 days ago (the lifecycle rule removed their objects after 7) |
+| Media orphan collection | 1 h | compute the referenced media id set (working set, every retained `content_version.media_ids`, `sponsor.logo_media_id`, media-sourced `cookie_type.icon`, the site settings draft, the `dark_media_id` and `small_media_id` of every `ready` asset); set `unreferenced_since = now()` on `ready` rows outside the set that have none, clear it on rows inside the set; tag and mark `orphaned` the rows whose `unreferenced_since` is older than 30 days; untag and return to `ready` any `orphaned` row that is back in the set; delete rows `orphaned` more than 8 days ago (the lifecycle rule removed their objects after 7) |
 | Nightly cleanup | 09:00 UTC (02:00 Mountain) | delete `beacon_enrollment_token` rows expired or consumed more than 24 h ago; `outbox` rows published more than 30 days ago, except the alert topics (`event.status_changed`, `event.status_notified`, `event.message_posted`), which stay 400 days so a person's alert history (4.4 `GET /me/alerts`) spans a season (their `alert_delivery` rows cascade with them); `subscriber` rows never verified whose `created_at` is older than 7 days; `beacon_log` rows older than 30 days; `preview_token` rows expired more than 24 h ago; `media_asset` rows still `pending` after 2 days (their objects expired by the lifecycle rule after 1) |
 
 At `WMSFO_ALERT_SEND_PER_SEC` = 10, twenty thousand verified subscribers take about 33 minutes per alert; the SES sending quota must be at or above that rate before the event.
@@ -2011,13 +2063,21 @@ SES v2 API through the instance role in `<region>`, from `WMSFO_SES_FROM_ADDRESS
 
 The API reads the account's sending quota with `GetAccount` for `GET /admin/email/quota` (4.5) and never blocks or delays a send because of it.
 
-Templates live in the API repository at `templates/email/<name>.html` and `.txt` with substitutions `{{eventName}}`, `{{scheduledAt}}` (rendered in `America/Denver`), `{{messageBody}}`, `{{customMessage}}` (the admin's text for a status alert; when absent the template's stock paragraph renders instead), `{{siteUrl}}`, `{{verifyUrl}}`, `{{unsubscribeUrl}}`, `{{contactName}}`, `{{contactEmail}}`, `{{contactMessage}}`.
+Every email has an HTML part and a text part. Each template in the API repository is a body fragment, `templates/email/<name>.html` and `.txt`, placed as-is at `{{content}}` of the shared layout, `templates/email/_layout.html` and `_layout.txt`. The node composes every template with the layout once at boot and validates the required substitutions against the composed result; a missing layout, layout without `{{content}}`, logo, or fragment fails the boot. The layout takes `{{subject}}`, `{{preheader}}` (one hidden sentence per template that inbox previews show), `{{logoUrl}}`, `{{siteUrl}}`, `{{footerReason}}` (why the reader got the email), and `{{content}}`; the text layout takes `{{content}}`, `{{footerReason}}`, `{{siteUrl}}`. Every substituted value is HTML-escaped in the HTML part and raw in the text part; only the fragment itself is placed unescaped.
+
+The layout: page background `#eef3fa`; a centred white card (`#ffffff`, 1 px `#d3ddee` border, 10 px radius, at most 560 px wide, 32 px padding, 20 px on phones through an inline `clamp` that clients without it read as 32 px); the logo at the top of the card, 96 px wide, alt `Santa Tracker`, with the name `Santa Tracker` as text beside it so the email reads with images off; headings `#0f1a30`, body `#2c3850`, secondary text `#5a6885`, links and buttons `#0b6bb5`; a system font stack, no web fonts. A code or temporary password sits in its own block, always as text: 32 px monospace, 6 px letter spacing, `#f5f8fd` fill, 1 px `#d3ddee` border. An email carries at most one button, a table cell with `#0b6bb5` fill and white text, with the plain URL printed under it. The footer is 13 px `#5a6885`: on alerts the unsubscribe link (the last line of the fragment), then the footer reason and a link to the site. Table-based layout with inline styles only: no `<style>` block, no scripts, one image in total.
+
+The logo object is `email/{sha256}.png` (1.1), where `{sha256}` is the SHA-256 of `templates/email/logo.png`; `{{logoUrl}}` is `WMSFO_CDN_BASE_URL/email/{sha256}.png`. The migrating node writes it on boot when the key is absent and never overwrites it, so a new logo lands on a new key.
+
+Golden renders of `subscription_verify` and `event_live` live under `templates/email/_golden/`: `inputs.json` holds the fixed inputs (CDN and site base URLs, the logo URL, and per template the subject, preheader, footer reason, and values), and `<name>.html` and `<name>.txt` hold the exact bytes the API renders from them.
+
+Fragment substitutions are `{{eventName}}`, `{{scheduledAt}}` (rendered in the event's `scheduleTimeZone`, `America/Denver` when unset, followed by the zone's IANA id in parentheses), `{{messageBody}}`, `{{customMessage}}` (the admin's text for a status alert; when absent the template's stock paragraph renders instead), `{{siteUrl}}`, `{{verifyUrl}}`, `{{unsubscribeUrl}}`, `{{contactName}}`, `{{contactEmail}}`, `{{contactMessage}}`.
 
 | Template | Subject | Body must contain |
 |---|---|---|
 | `subscription_verify` | `Confirm your Santa tracker alerts` | `https://<site-domain>/alerts/verify?token=wsv_...` |
 | `event_planned` | `Santa's flight is being planned` | event name, the stock paragraph or `{{customMessage}}`, link to `https://<site-domain>/`, unsubscribe link |
-| `event_scheduled` | `Santa's flight is scheduled` | event name, `scheduledAt` in Mountain time, the stock paragraph or `{{customMessage}}`, unsubscribe link |
+| `event_scheduled` | `Santa's flight is scheduled` | event name, `scheduledAt` in the event's `scheduleTimeZone` (`America/Denver` when unset) with the IANA id in parentheses, the stock paragraph or `{{customMessage}}`, unsubscribe link |
 | `event_live` | `Santa just lifted off` | link to `https://<site-domain>/`, the stock paragraph or `{{customMessage}}`, unsubscribe link |
 | `event_ended` | `Santa is back at the North Pole` | event name, the stock paragraph or `{{customMessage}}`, unsubscribe link |
 | `event_cancelled` | `Santa's flight is cancelled` | event name, the stock paragraph or `{{customMessage}}`, unsubscribe link |
@@ -2368,7 +2428,7 @@ Tests the artifacts drive: Vitest on the site store, page selection, section reg
 - The route object is `{ schemaVersion, name, points[{ lat, lng, recordedAt }] }` with no other keys, 2 to 50,000 points; a re-upload with identical content returns the existing route; routes can be deleted when unreferenced. It is a flight recording for replay, export, and tests; the site never fetches it.
 - The route the public sees is a poster image: a raster media asset linked to the event as `route_image_media_id`, carried in the snapshot as `event.routeImageMediaId`, shown by `route_preview` as a picture or a pan-and-zoom viewer. The tracker shows only where Santa is; its "flight history" toggle draws the recording linked to the event as a projected route, embedded in the snapshot as `event.flightHistory` (thinned to `flight_history_max_points`) so the first snapshot fetched carries it and the admin sets it per event through `routeId`.
 - Sponsors carry no tiers. Display order is pinned sponsors by position, then amount donated descending; the carousel plays that order and never shuffles. `sponsor_year.pinned_position` and `linger_ms_override` are per year; `PUT /admin/sponsors/order/{eventYear}` sets the whole pinned list atomically.
-- Site settings carry only the seasonal layer defaults (`snowDefault`, `lightsDefault`) and the background ornaments switch (`ornaments`). Colours, type, and the light/dark/system choice are the site's own; the visitor's scheme choice is stored in the browser and never published.
+- Site settings carry only the seasonal layer defaults (`snowDefault`, `lightsDefault`), the background ornaments switch (`ornaments`), and the card fill opacity per theme (`cardOpacityLight`, `cardOpacityDark`; 1.3a). Colours, type, and the light/dark/system choice are the site's own; the visitor's scheme choice is stored in the browser and never published.
 - API keys (`wak_`) reach every admin group by capability, can carry every capability or a chosen subset, can expire, are minted only by a Cognito admin with TOTP, and can never touch the key endpoints.
 - The S3 PUT inside an admin transaction gets one attempt with a 3 s timeout so fixes never wait longer than that on the event row lock.
 - `amountDonated` is a JSON number with two decimals, parsed as decimal by the API and never computed with by clients.
