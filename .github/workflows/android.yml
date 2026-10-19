@@ -68,6 +68,9 @@ jobs:
           REDNOSE_KEYSTORE_PASSWORD: ${{ secrets.REDNOSE_KEYSTORE_PASSWORD }}
           REDNOSE_KEY_ALIAS: ${{ secrets.REDNOSE_KEY_ALIAS }}
           REDNOSE_KEY_PASSWORD: ${{ secrets.REDNOSE_KEY_PASSWORD }}
+          # The prod API base URL is an environment variable of the flavour's
+          # GitHub environment, never a value in the tree (contracts 8.5).
+          REDNOSE_PROD_API_BASE_URL: ${{ vars.REDNOSE_PROD_API_BASE_URL }}
         run: |
           cd android
           # The beacon phone is arm64 only (docs/red-nose.md 14.4); building the
