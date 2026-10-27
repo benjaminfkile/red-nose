@@ -24,12 +24,28 @@ export type BeaconsResponse = { items: SoakBeacon[]; staleAfterS: number };
 export type PollOptions = {
   apiBaseUrl: string;
   adminKey: string;
+  // Keep only these beacon ids; unset or empty keeps every beacon.
+  beaconIds?: number[];
   fetchImpl?: typeof fetch;
   now?: () => Date;
 };
 
 export const CSV_HEADER =
   'observedAt,beaconId,name,heartbeatAgeS,socketState,serviceRestartCount,batteryPercent,charging';
+
+// SOAK_BEACON_IDS: comma separated integers, whitespace tolerated.  Unset or
+// empty means every beacon (an empty array).  Throws on anything else.
+export function parseBeaconIds(raw: string | undefined): number[] {
+  if (raw === undefined || raw.trim() === '') return [];
+  return raw
+    .split(',')
+    .map(part => part.trim())
+    .filter(part => part !== '')
+    .map(part => {
+      if (!/^\d+$/.test(part)) throw new Error(`not a beacon id: ${part}`);
+      return Number(part);
+    });
+}
 
 function trimBase(apiBaseUrl: string): string {
   return apiBaseUrl.endsWith('/') ? apiBaseUrl.slice(0, -1) : apiBaseUrl;
@@ -81,14 +97,17 @@ export async function pollBeacons(
   const url = `${trimBase(opts.apiBaseUrl)}/admin/beacons`;
   const res = await fetchImpl(url, {
     method: 'GET',
-    headers: { 'X-Beacon-Key': opts.adminKey, Accept: 'application/json' },
+    // An admin API key is a bearer token (contracts 3.6).
+    headers: { Authorization: `Bearer ${opts.adminKey}`, Accept: 'application/json' },
   });
   if (!res.ok) {
     throw new Error(`GET ${url} -> ${res.status} ${res.statusText}`);
   }
   const body = (await res.json()) as BeaconsResponse;
   const observedAt = now();
-  const rows = body.items.map(item => formatCsvRow(observedAt, item));
+  const wanted = opts.beaconIds && opts.beaconIds.length > 0 ? new Set(opts.beaconIds) : null;
+  const items = wanted ? body.items.filter(item => wanted.has(item.id)) : body.items;
+  const rows = items.map(item => formatCsvRow(observedAt, item));
   return { observedAt, rows, response: body };
 }
 
