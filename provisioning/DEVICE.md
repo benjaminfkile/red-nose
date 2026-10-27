@@ -76,7 +76,27 @@ need the phone while it is on the bench.
 
 Run the kit's provisioning script with the CI APK next to it. It needs no
 root: every row is plain `adb shell`, every value is read back, and it is
-safe to re-run at any time. `docs/red-nose.md` 14.2 is the list of rows.
+safe to re-run at any time. `docs/red-nose.md` 14.2 is the design of the
+rows; the commands, so the bench never needs the script to read them:
+
+| Row | Command (`adb shell ...`) |
+|---|---|
+| Setup wizard | `settings put secure user_setup_complete 1`; `settings put global device_provisioned 1`; `pm disable-user --user 0 org.lineageos.setupwizard`; same for `com.google.android.setupwizard` |
+| No self-updates | `pm disable-user --user 0 org.lineageos.updater`; `settings put global package_verifier_user_consent -1` |
+| Play services | `pm path com.google.android.gms` non-empty |
+| Install | `adb install -r -g <apk>`; then `dumpsys package com.wmsfo.rednose` shows no `SYSTEM` flag |
+| Permissions | `pm grant com.wmsfo.rednose android.permission.<perm>` for `ACCESS_FINE_LOCATION`, `ACCESS_COARSE_LOCATION`, `ACCESS_BACKGROUND_LOCATION`, `POST_NOTIFICATIONS`, `READ_PHONE_STATE` |
+| Location appops | `appops set com.wmsfo.rednose FINE_LOCATION allow`; same for `COARSE_LOCATION` |
+| Doze | `dumpsys deviceidle whitelist +com.wmsfo.rednose` |
+| Location | `settings put secure location_mode 3` |
+| Stay awake | `settings put global stay_on_while_plugged_in 7` |
+| Auto-revoke | `appops set com.wmsfo.rednose AUTO_REVOKE_PERMISSIONS_IF_UNUSED ignore` |
+| Keyguard | `locksettings set-disabled true` |
+| Mobile data | `svc data enable`; `settings put global mobile_data 1` |
+| Safe mode | `settings put global safe_boot_disallowed 1` |
+| Wi-Fi (bench) | `cmd wifi connect-network <ssid> wpa2 <psk>` from the kit's credential file |
+| Wireless adb | `adb root`; `setprop persist.adb.tcp.port 5555`; `adb unroot` |
+
 All rows must print `ok`.
 
 Rows that bit on this ROM:
