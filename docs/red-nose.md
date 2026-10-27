@@ -670,7 +670,7 @@ Runs on the real device against the dev API for at least 30 days before December
 | Battery to 10 percent unplugged, then charged | no change in behaviour; battery telemetry correct |
 | Dev event set live with replay of the 2025 route | the dev site shows the tracker moving along the route |
 
-Every drill is logged in the repository under `docs/soak/<date>.md` with the observer's output.
+Every drill is logged in the repository under `docs/soak/<date>.md` with the observer's output. The observer authenticates with an admin API key (contracts 3.6), can be limited to the beacons under soak (`SOAK_BEACON_IDS`), and its `report` command reads a CSV and prints, per beacon, the window, the largest heartbeat age and when, the rows past 60 s, the restart count at both ends, the rows whose socket was not connected, and the lowest battery (`docs/soak/README.md`). The 2026 soak runs on the operator's build box as a service from 2026-10-27, beacon 22 against dev.
 
 ---
 
