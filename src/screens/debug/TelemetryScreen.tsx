@@ -1,6 +1,6 @@
 // Telemetry debug screen (red-nose.md 10).  Renders the heartbeat body as it
 // would be sent now: `sentAt`, the typed `health` core, and the free `debug`
-// object (six groups).  Also shows the last heartbeat outcome, skew, live event,
+// object (seven groups).  Also shows the last heartbeat outcome, skew, live event,
 // active, and revoked.
 
 import React from 'react';

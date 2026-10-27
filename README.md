@@ -1,17 +1,17 @@
 # red-nose
 
-Red-Nose is the WMSFO v2 beacon app: a React Native user interface over a native Kotlin foreground service, Android only. It runs as a persistent system app on a rooted phone in the helicopter and posts Santa's location to the API. The pilot never touches it.
+Red-Nose is the WMSFO v2 beacon app: a React Native user interface over a native Kotlin foreground service, Android only. It runs as a normal app on a phone with a clean Android build in the helicopter and posts Santa's location to the API. The pilot never touches it.
 
 Read `docs/` before touching anything:
 
-- `docs/red-nose.md`: this repository's technical design, including provisioning and the runbook for the phone we own.
+- `docs/red-nose.md`: this repository's technical design, including provisioning and the phone we own.
 - `docs/DESIGN.md`: the design overview for all of v2 (a copy; the original is in `wmsfo-api/docs`).
 - `docs/contracts.md`: the shared contracts every component codes against (a copy; wins on any conflict). Section 9 is the beacon contract.
-- `provisioning/DEVICE.md`: the phone runbook, including how to flash a build and check it, and where the phone currently stands.
+- `provisioning/DEVICE.md`: the phone runbook, including how to install a build and check it, and where the phone currently stands.
 
 ## Layout
 
-`App.tsx` and `src/` hold the React Native user interface, `android/` the Kotlin foreground service and the native bridge, `provisioning/` the Magisk module, `provision.sh`, and the phone runbook, `tools/soak-observer/` the soak script; `docs/red-nose.md` section 2 lists every file. There is no iOS target.
+`App.tsx` and `src/` hold the React Native user interface, `android/` the Kotlin foreground service and the native bridge, `provisioning/` the phone runbook, `tools/soak-observer/` the soak script; `docs/red-nose.md` section 2 lists every file. The provisioning script and the phone's images live in the operator kit, outside this repository (`docs/red-nose.md` 14). There is no iOS target.
 
 ## Build
 
@@ -34,29 +34,16 @@ cd android && ./gradlew :app:assembleDevRelease -PreactNativeArchitectures=arm64
 # output: android/app/build/outputs/apk/dev/release/app-dev-release.apk
 ```
 
-`assembleProdRelease` is the same with the prod flavour. Release builds are signed with `android/app/debug.keystore`, so a local build and a CI build carry the same signature and either can replace the other on the phone.
+`assembleProdRelease` is the same with the prod flavour. A local release build is signed with the checked-in debug keystore; CI signs with the flavour's release key (`docs/red-nose.md` 15). `adb install -r` refuses a different signature and uninstalling loses the enrollment, so a local build goes on an emulator or a spare phone, never over the CI build on the beacon phone.
 
-`npx react-native run-android` (a debug build on a USB device or emulator) is only for UI work: it installs into `/data/app`, which is not how the phone runs the app (see `docs/red-nose.md` section 14).
+`npx react-native run-android` (a debug build on a USB device or emulator) is for UI work.
 
-## Package and flash
+## Install on the phone
 
-The phone runs the app as a Magisk module, never through `pm install`. CI (`.github/workflows/android.yml`, section 16 of the design) produces `red-nose-<flavour>-<version>-<sha>.magisk.zip` and the matching APK as artifacts on every push to `dev` or `main`. To build the same zip locally:
-
-```
-stage=$(mktemp -d)
-cp -R provisioning/magisk-module/. "$stage"/
-rm -f "$stage/system/app/RedNose/.gitkeep"
-cp android/app/build/outputs/apk/dev/release/app-dev-release.apk "$stage/system/app/RedNose/RedNose.apk"
-(cd "$stage" && zip -r ../red-nose-dev.magisk.zip .)
-# Windows without zip: (cd "$stage" && tar -a -cf ..\red-nose-dev.magisk.zip module.prop customize.sh service.sh system)
-```
-
-Flash it from any machine with adb (fastboot is not involved):
+CI (`.github/workflows/android.yml`, section 16 of the design) uploads `red-nose-<flavour>-<version>-<sha>.apk` as an artifact on every push to `dev` or `main`. Download it and, from any machine with adb (the cable, or wireless adb on the bench network):
 
 ```
-adb push red-nose-dev.magisk.zip /data/local/tmp/rednose.magisk.zip
-adb shell su -c "magisk --install-module /data/local/tmp/rednose.magisk.zip"
-adb reboot
+adb install -r -g red-nose-dev-<version>-<sha>.apk
 ```
 
-The installer clears the package manager's parse cache so a same-version reflash is picked up. After the reboot, verify as in `provisioning/DEVICE.md` section 12. The enrollment lives in userdata and survives a reflash.
+No reboot: the install kills the app and its boot receiver, which also answers the package-replaced broadcast, starts the service again within a minute. The enrollment and every setting survive. Then re-run the operator kit's provisioning script with its install step skipped so every row is read back, and verify as in `provisioning/DEVICE.md` section 8. First-time setup of a phone (ROM, provisioning, enrollment) is `docs/red-nose.md` 14 and `provisioning/DEVICE.md`.

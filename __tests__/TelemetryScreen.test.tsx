@@ -30,15 +30,18 @@ test('renders the guard group', () => {
         power: null, radio: null, gps: null, transport: null,
         process: null, identity: null,
         guard: {
-          airplaneModeRestores: 2,
-          locationRestores: 0,
-          mobileDataRestores: 1,
-          batterySaverRestores: 0,
-          permissionRestores: 3,
-          dozeAllowlistRestores: 0,
-          lastRestoredItem: 'permissions',
-          lastRestoredAt: '2026-12-22T01:31:07.412Z',
-          lastError: null,
+          wrong: ['mobileData', 'permissions'],
+          wrongSince: '2026-12-22T01:30:07.412Z',
+          lastWrongItem: 'permissions',
+          lastWrongAt: '2026-12-22T01:31:02.412Z',
+          seenWrong: {
+            airplaneMode: 0,
+            location: 0,
+            mobileData: 1,
+            batterySaver: 0,
+            permissions: 2,
+            dozeAllowlist: 0,
+          },
         },
       },
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -50,7 +53,11 @@ test('renders the guard group', () => {
   });
   const text = textAt(tree.root);
   expect(text).toContain('guard');
-  expect(text).toContain('airplaneModeRestores');
-  expect(text).toContain('permissionRestores');
-  expect(text).toContain('lastRestoredItem');
+  expect(text).toContain('wrong');
+  expect(text).toContain('["mobileData","permissions"]');
+  expect(text).toContain('wrongSince');
+  expect(text).toContain('lastWrongItem');
+  expect(text).toContain('seenWrong');
+  expect(text).toContain('"permissions":2');
+  expect(text).not.toContain('Restore');
 });

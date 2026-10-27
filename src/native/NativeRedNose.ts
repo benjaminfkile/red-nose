@@ -91,15 +91,18 @@ export type Heartbeat = {
       clockSkewMs: number | null;
     } | null;
     guard: {
-      airplaneModeRestores: number;
-      locationRestores: number;
-      mobileDataRestores: number;
-      batterySaverRestores: number;
-      permissionRestores: number;
-      dozeAllowlistRestores: number;
-      lastRestoredItem: string | null;
-      lastRestoredAt: string | null;
-      lastError: string | null;
+      wrong: string[];
+      wrongSince: string | null;
+      lastWrongItem: string | null;
+      lastWrongAt: string | null;
+      seenWrong: {
+        airplaneMode: number;
+        location: number;
+        mobileData: number;
+        batterySaver: number;
+        permissions: number;
+        dozeAllowlist: number;
+      };
     } | null;
   } | null;
 };
@@ -113,8 +116,6 @@ export type Checklist = {
   locationServicesOn: boolean;
   playServices: boolean;
   phoneState: boolean;
-  systemApp: boolean;
-  rootAvailable: boolean;
   airplaneModeOff: boolean;
   mobileDataOn: boolean;
   batterySaverOff: boolean;

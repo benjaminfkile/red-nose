@@ -94,13 +94,19 @@ data class IdentityGroup(
 
 @Serializable
 data class GuardGroup(
-    val airplaneModeRestores: Int = 0,
-    val locationRestores: Int = 0,
-    val mobileDataRestores: Int = 0,
-    val batterySaverRestores: Int = 0,
-    val permissionRestores: Int = 0,
-    val dozeAllowlistRestores: Int = 0,
-    val lastRestoredItem: String? = null,
-    val lastRestoredAt: String? = null,
-    val lastError: String? = null,
+    val wrong: List<String> = emptyList(),
+    val wrongSince: String? = null,
+    val lastWrongItem: String? = null,
+    val lastWrongAt: String? = null,
+    val seenWrong: GuardCounts = GuardCounts(),
+)
+
+@Serializable
+data class GuardCounts(
+    val airplaneMode: Int = 0,
+    val location: Int = 0,
+    val mobileData: Int = 0,
+    val batterySaver: Int = 0,
+    val permissions: Int = 0,
+    val dozeAllowlist: Int = 0,
 )

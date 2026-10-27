@@ -4,10 +4,10 @@ import android.content.Context
 import android.util.Log
 import com.google.mlkit.common.sdkinternal.MlKitContext
 
-// ML Kit initialises itself through MlKitInitProvider. If that provider has not
-// run when a caller needs ML Kit (it did not while a stale package manager parse
-// cache hid it, red-nose.md 14.3), this does the same thing, once, for every
-// caller. Initialising twice throws, so it is guarded.
+// ML Kit initialises itself through MlKitInitProvider. The init here is explicit
+// anyway because it is cheap and the first scan must not wait on anything: it
+// does the same thing, once, for every caller. Initialising twice throws, so it
+// is guarded.
 object MlKitInit {
     @Volatile private var done = false
 
