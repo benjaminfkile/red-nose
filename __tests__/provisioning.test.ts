@@ -82,6 +82,16 @@ describe('AndroidManifest.xml (red-nose.md 5.5, 14: a normal app, no kiosk)', ()
     expect(manifest).not.toContain('android.intent.category.HOME');
   });
 
+  test('the boot receiver also answers MY_PACKAGE_REPLACED (5.1, 14.3)', () => {
+    const receivers = manifest.match(/<receiver[\s>][\s\S]*?<\/receiver>/g) ?? [];
+    const boot = receivers.filter(r => r.includes('android.intent.action.BOOT_COMPLETED'));
+    expect(boot).toHaveLength(1);
+    expect(boot[0]).toContain('.service.BootReceiver');
+    expect(boot[0]).toContain('android.intent.action.LOCKED_BOOT_COMPLETED');
+    expect(boot[0]).toContain('android.intent.action.MY_PACKAGE_REPLACED');
+    expect(manifest).toContain('android.intent.action.MY_PACKAGE_REPLACED');
+  });
+
   test('is not persistent', () => {
     expect(manifest).not.toContain('android:persistent');
   });
