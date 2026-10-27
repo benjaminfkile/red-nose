@@ -236,7 +236,24 @@ anywhere (it was dumped through root while the phone was rooted) and
 `super` flashes only through fastbootd (`fastboot reboot fastboot`, then
 `fastboot flash super`), not from the bootloader.
 
-## 11. Where the phone stands
+## 11. Remote access
+
+The phone keeps a WireGuard tunnel up as an always-on VPN to the operator's
+own hub (`docs/red-nose.md` 14.5); the workstation and the build box are peers
+of the same hub. From either, anywhere:
+
+```
+adb connect <phone-vpn-address>:5555
+```
+
+then everything in sections 6 to 8 works as on the bench. The hub, the peer
+addresses, the keys, and the phone's tunnel config live in the operator kit
+(its REMOTE.md), never here. Rules: the WireGuard app stays on the Doze
+allowlist, always-on VPN stays set to it, and the lockdown switch ("block
+connections without VPN") is never turned on. A new adb host gets its key
+appended to the phone's authorized keys from the bench first.
+
+## 12. Where the phone stands
 
 Updated 2026-10-25.
 
@@ -255,4 +272,6 @@ Updated 2026-10-25.
   enrollment intact, heartbeats and GPS fixes (about 15 satellites used)
   on dev. Telemetry: `identity.androidVersion` 17, `process.systemApp`
   false, `process.rootAvailable` false.
-- Open: remote management of the mounted phone (`docs/red-nose.md` 19).
+- Remote access over the WireGuard tunnel proven 2026-10-27: Wi-Fi off, reboot
+  on cellular, tunnel back within two minutes, adb over it, heartbeats on LTE
+  throughout. Red-Nose runs the CI build of 22fb967 (R14 to R16).

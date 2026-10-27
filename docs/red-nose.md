@@ -610,7 +610,7 @@ What the design accepts: the bootloader stays unlocked (a custom ROM needs it, a
 
 ### 14.3 Updating Red-Nose
 
-An update is `adb install -r -g <new apk>` from any machine with `adb` (the cable, or wireless adb on the bench network), then the provisioning script again with its install step skipped so every row is read back. No reboot: a package update kills the app's processes and the platform starts nothing on its own afterwards (opening the app only binds the service, which the platform freezes and drops again), so `BootReceiver` also handles `MY_PACKAGE_REPLACED` and starts the foreground service exactly as at boot (5.1); the service is foreground again within a minute of the install. The enrollment and every setting survive: the app is a normal package, and `-r` replaces the code in place. Never `pm clear` the package (it drops the enrollment, which is Keystore-bound and cannot be restored from a copy, 9.3) and never `adb uninstall` it for an update.
+An update is `adb install -r -g <new apk>` from any machine with `adb` (the cable, wireless adb on the bench network, or wireless adb over the operator's VPN from anywhere, 14.5), then the provisioning script again with its install step skipped so every row is read back. No reboot: a package update kills the app's processes and the platform starts nothing on its own afterwards (opening the app only binds the service, which the platform freezes and drops again), so `BootReceiver` also handles `MY_PACKAGE_REPLACED` and starts the foreground service exactly as at boot (5.1); the service is foreground again within a minute of the install. The enrollment and every setting survive: the app is a normal package, and `-r` replaces the code in place. Never `pm clear` the package (it drops the enrollment, which is Keystore-bound and cannot be restored from a copy, 9.3) and never `adb uninstall` it for an update.
 
 Only CI builds go on the phone. The installed package is signed with the flavour's release key (section 15); `adb install -r` refuses an APK with a different signature, and uninstalling to switch signatures loses the enrollment. A locally built APK (debug keystore) therefore never replaces a CI build; it goes on an emulator or a spare phone.
 
@@ -626,6 +626,10 @@ The beacon phone is a Moto G 5G (2024), Motorola codename `fogo`, model XT2417-1
 - GPS fixes arrive at 1 Hz whatever rate the app asks for (Qualcomm GNSS HAL, 6.1); the first fix after a wipe is a cold start and takes minutes.
 - Never write to the kernel's adaptive charge control (`qpnp_adaptive_charge`); it once latched USB input off.
 - Stock restore kits (stock `boot`, `super`, `dtbo`, `vbmeta`, plus a stock `vendor_boot` to undo the ROM's) live in the operator kit and were proven end to end on the stock firmware; LineageOS put `dtbo` and `vendor_boot` in place, so a return to stock flashes those too.
+
+### 14.5 Remote access
+
+The mounted phone is reached from anywhere over a WireGuard tunnel: the phone runs the official WireGuard app as an always-on VPN (never with the "block connections without VPN" lockdown, which would cut the beacon off the API whenever the tunnel is down) and dials out over cellular to a small hub the operator runs in their own cloud account; the operator's machines are peers of the same hub. The tunnel carries the VPN subnet only, so Red-Nose keeps talking to the API over cellular directly, and the beacon is unaffected if the hub is down; only remote access is. Over the tunnel, `adb connect <phone-vpn-address>:5555` gives the same wireless adb as on the bench, so an update (14.3), logs, and a screen capture need nobody on site. Every host that will ever use it has its adb key authorized on the bench (14.4); the hub's addresses, keys, and configs live in the operator kit, never here. Proven 2026-10-27 on cellular with Wi-Fi off, through a reboot, with heartbeats unaffected.
 
 ---
 
@@ -679,6 +683,7 @@ Every drill is logged in the repository under `docs/soak/<date>.md` with the obs
 - The app never requests a permission and never opens a settings screen; provisioning grants everything and the checklist only reports.
 - No kiosk (2026-09-16): the phone stays usable for other apps; Red-Nose is not the launcher and does not hide the bars. The service's device guard watches whatever the beacon needs and reports it in the log and the heartbeat when someone switches it off (5.5), with no pause and no override. The bootloader stays unlocked and a factory reset from Settings stays possible; both are accepted.
 - Updates to the OS are prevented by disabling the ROM's updater package at provisioning; there is no manufacturer updater to fight.
+- Remote access (2026-10-27) is a WireGuard tunnel the phone keeps up as an always-on VPN to a hub in the operator's own cloud account, with wireless adb over it (14.5); no third-party account and nothing in the app. The app never depends on the tunnel.
 - Fused provider is the default source (`REDNOSE_FIX_INTERVAL_MS = 250`, so the location request asks for a fix every 250 ms; the delivered rate is whatever the chip gives, up to 4 Hz); GPS-only is a toggle, never automatic.
 - A partial wake lock for the life of the service.
 - `READ_PHONE_STATE` is requested for signal telemetry and is optional.
@@ -692,4 +697,4 @@ Every drill is logged in the repository under `docs/soak/<date>.md` with the obs
 
 ## 19. Needs a decision
 
-- Remote management of the mounted phone: installing a build and reading logs from anywhere, without a person on site. Nothing in the app depends on the answer; the candidate is a mesh VPN on the phone with `adb` over it, decided outside this document.
+Nothing is open.
