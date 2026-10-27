@@ -2,6 +2,8 @@
  * @format
  */
 
+import * as fs from 'fs';
+import * as path from 'path';
 import React from 'react';
 import ReactTestRenderer from 'react-test-renderer';
 import { NativeModules } from 'react-native';
@@ -32,8 +34,7 @@ beforeAll(() => {
       checklist: {
         fineLocation: true, backgroundLocation: true, preciseLocation: true,
         notifications: true, batteryOptimizationExempt: true, locationServicesOn: true,
-        playServices: true, phoneState: true, systemApp: true,
-        rootAvailable: true, airplaneModeOff: true, mobileDataOn: true,
+        playServices: true, phoneState: true, airplaneModeOff: true, mobileDataOn: true,
         batterySaverOff: true, serviceRunning: false,
       },
       appVersion: '0.1.0',
@@ -57,4 +58,15 @@ test('renders correctly', async () => {
   await ReactTestRenderer.act(() => {
     ReactTestRenderer.create(<App />);
   });
+});
+
+// red-nose.md 5.3: Red-Nose is a normal app; android:persistent is honoured
+// for system apps only, so the manifest does not carry it.
+test('the manifest does not ask to be persistent', () => {
+  const manifest = fs.readFileSync(
+    path.resolve(__dirname, '..', 'android', 'app', 'src', 'main', 'AndroidManifest.xml'),
+    'utf8',
+  );
+  expect(manifest).toContain('<application');
+  expect(manifest).not.toContain('android:persistent');
 });

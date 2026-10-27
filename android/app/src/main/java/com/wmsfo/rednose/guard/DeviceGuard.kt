@@ -13,37 +13,30 @@ import android.provider.Settings
 import androidx.core.content.ContextCompat
 import com.wmsfo.rednose.location.FixTime
 import com.wmsfo.rednose.log.RingLog
+import com.wmsfo.rednose.telemetry.GuardCounts
 import com.wmsfo.rednose.telemetry.GuardGroup
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.channels.Channel
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.selects.onTimeout
 import kotlinx.coroutines.selects.select
 
-// red-nose.md 5.5.  Watches for platform-side changes to the settings the
-// beacon needs, and every sweepMs as a backstop for changes that announce
-// nothing.  On a sweep every item is walked in order; an item in the wrong
-// state gets its root commands, and is then read again.  Restore counts one;
-// still wrong is a failure retried on the next sweep, forever.  Sweeps never
-// overlap; a request arriving during a sweep causes exactly one more sweep
-// after it.
+// red-nose.md 5.5.  Watches the settings the beacon needs for platform-side
+// changes, and every sweepMs as a backstop for changes that announce nothing.
+// It reports and never puts anything back: a sweep reads every item in order,
+// and an item that changes between right and wrong writes one ring-log line
+// and updates the heartbeat's guard group.  Nothing is written while a state
+// holds.  Sweeps never overlap; a request arriving during a sweep causes
+// exactly one more sweep after it.
 class DeviceGuard(
-    private val packageName: String,
     private val state: DeviceState,
-    private val shell: RootShell,
     private val log: RingLog,
     private val sweepMs: Long,
-    private val onPermissionsRestored: () -> Unit = {},
+    private val onPermissionsBack: () -> Unit = {},
     private val clockMs: () -> Long = System::currentTimeMillis,
-    // Some switches apply asynchronously (svc data enable): after the commands
-    // the item is read again every settlePollMs for up to settleMs before the
-    // attempt counts as a failure.
-    private val settleMs: Long = 2_000L,
-    private val settlePollMs: Long = 100L,
 ) {
     // The item names of red-nose.md 5.5, in the exact order they are walked.
     private val itemOrder: List<String> = listOf(
@@ -51,13 +44,14 @@ class DeviceGuard(
         ITEM_PERMISSIONS, ITEM_DOZE_ALLOWLIST,
     )
 
-    // Counters and last-* fields.  Updated only on the beacon coroutine that
-    // runs the sweeps.
-    private val counters: MutableMap<String, Int> = itemOrder.associateWith { 0 }.toMutableMap()
-    @Volatile private var lastRestoredItem: String? = null
-    @Volatile private var lastRestoredAt: String? = null
-    @Volatile private var lastError: String? = null
-    private val lastWarnAtMs: MutableMap<String, Long> = mutableMapOf()
+    // Per-item state, counters, and last-* fields.  Written only on the beacon
+    // coroutine that runs the sweeps; stats() reads them from other threads.
+    // Every item starts as right, so an item wrong at creation logs once.
+    @Volatile private var wrongNow: Map<String, Boolean> = itemOrder.associateWith { false }
+    @Volatile private var wrongSinceMs: Map<String, Long> = emptyMap()
+    @Volatile private var seenWrong: Map<String, Int> = itemOrder.associateWith { 0 }
+    @Volatile private var lastWrongItem: String? = null
+    @Volatile private var lastWrongAt: String? = null
 
     private val requestChannel: Channel<Unit> = Channel(capacity = Channel.CONFLATED)
     private var loopJob: Job? = null
@@ -145,55 +139,49 @@ class DeviceGuard(
         loopJob = null
     }
 
-    fun stats(): GuardGroup = GuardGroup(
-        airplaneModeRestores = counters[ITEM_AIRPLANE] ?: 0,
-        locationRestores = counters[ITEM_LOCATION] ?: 0,
-        mobileDataRestores = counters[ITEM_MOBILE_DATA] ?: 0,
-        batterySaverRestores = counters[ITEM_BATTERY_SAVER] ?: 0,
-        permissionRestores = counters[ITEM_PERMISSIONS] ?: 0,
-        dozeAllowlistRestores = counters[ITEM_DOZE_ALLOWLIST] ?: 0,
-        lastRestoredItem = lastRestoredItem,
-        lastRestoredAt = lastRestoredAt,
-        lastError = lastError,
-    )
-
-    private suspend fun sweepItem(item: String) {
-        if (inNeededState(item)) return
-        val startedAtMs = clockMs()
-        val results = runCommandsFor(item)
-        var waitedMs = 0L
-        while (!inNeededState(item) && waitedMs < settleMs) {
-            delay(settlePollMs)
-            waitedMs += settlePollMs
-        }
-        if (inNeededState(item)) {
-            counters[item] = (counters[item] ?: 0) + 1
-            val took = clockMs() - startedAtMs
-            lastRestoredItem = item
-            lastRestoredAt = FixTime.rfc3339(clockMs())
-            log.info("guard restored $item took=$took")
-            if (item == ITEM_PERMISSIONS) {
-                try { onPermissionsRestored() } catch (_: Throwable) {}
-            }
-        } else {
-            val text = failureText(results)
-            lastError = "$item: $text"
-            val now = clockMs()
-            val last = lastWarnAtMs[item]
-            if (last == null || now - last >= 60_000L) {
-                log.warn("guard restore failed $item err=$lastError")
-                lastWarnAtMs[item] = now
-            }
-        }
+    fun stats(): GuardGroup {
+        val wrong = wrongNow
+        val since = wrongSinceMs
+        val counts = seenWrong
+        val wrongItems = itemOrder.filter { wrong[it] == true }
+        val oldest = wrongItems.mapNotNull { since[it] }.minOrNull()
+        return GuardGroup(
+            wrong = wrongItems,
+            wrongSince = oldest?.let { FixTime.rfc3339(it) },
+            lastWrongItem = lastWrongItem,
+            lastWrongAt = lastWrongAt,
+            seenWrong = GuardCounts(
+                airplaneMode = counts[ITEM_AIRPLANE] ?: 0,
+                location = counts[ITEM_LOCATION] ?: 0,
+                mobileData = counts[ITEM_MOBILE_DATA] ?: 0,
+                batterySaver = counts[ITEM_BATTERY_SAVER] ?: 0,
+                permissions = counts[ITEM_PERMISSIONS] ?: 0,
+                dozeAllowlist = counts[ITEM_DOZE_ALLOWLIST] ?: 0,
+            ),
+        )
     }
 
-    private fun failureText(results: List<RootResult>): String {
-        if (results.isEmpty()) return "still wrong"
-        val last = results.last()
-        if (last.exitCode == null) return "timeout"
-        val out = last.output
-        if (out.isEmpty()) return "still wrong"
-        return if (out.length > 200) out.substring(0, 200) else out
+    private fun sweepItem(item: String) {
+        val isWrong = !inNeededState(item)
+        val wasWrong = wrongNow[item] == true
+        if (isWrong == wasWrong) return
+        val now = clockMs()
+        if (isWrong) {
+            seenWrong = seenWrong + (item to (seenWrong[item] ?: 0) + 1)
+            wrongSinceMs = wrongSinceMs + (item to now)
+            lastWrongItem = item
+            lastWrongAt = FixTime.rfc3339(now)
+            wrongNow = wrongNow + (item to true)
+            log.warn("guard wrong $item")
+        } else {
+            val after = now - (wrongSinceMs[item] ?: now)
+            wrongSinceMs = wrongSinceMs - item
+            wrongNow = wrongNow + (item to false)
+            log.info("guard ok $item after=$after")
+            if (item == ITEM_PERMISSIONS) {
+                try { onPermissionsBack() } catch (_: Throwable) {}
+            }
+        }
     }
 
     private fun inNeededState(item: String): Boolean = when (item) {
@@ -204,22 +192,6 @@ class DeviceGuard(
         ITEM_PERMISSIONS -> state.missingPermissions().isEmpty()
         ITEM_DOZE_ALLOWLIST -> state.ignoringBatteryOptimizations()
         else -> true
-    }
-
-    private suspend fun runCommandsFor(item: String): List<RootResult> = when (item) {
-        ITEM_AIRPLANE -> listOf(shell.run("cmd connectivity airplane-mode disable"))
-        ITEM_LOCATION -> listOf(shell.run("cmd location set-location-enabled true"))
-        ITEM_MOBILE_DATA -> listOf(shell.run("svc data enable"))
-        ITEM_BATTERY_SAVER -> listOf(shell.run("cmd power set-mode 0"))
-        ITEM_PERMISSIONS -> buildList {
-            for (perm in state.missingPermissions()) {
-                add(shell.run("pm grant $packageName $perm"))
-            }
-            add(shell.run("appops set $packageName FINE_LOCATION allow"))
-            add(shell.run("appops set $packageName COARSE_LOCATION allow"))
-        }
-        ITEM_DOZE_ALLOWLIST -> listOf(shell.run("dumpsys deviceidle whitelist +$packageName"))
-        else -> emptyList()
     }
 
     companion object {

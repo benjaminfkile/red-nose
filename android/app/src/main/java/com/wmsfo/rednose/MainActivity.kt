@@ -33,8 +33,9 @@ class MainActivity : ReactActivity() {
   // Best effort: a warm-up problem must never take the launcher activity down.
   private fun warmCodeScannerModule() {
     try {
-      // ML Kit normally initialises itself through a content provider; on this
-      // persistent system app that has not happened by the time onCreate runs.
+      // ML Kit initialises itself through its content provider, which runs
+      // for a normal app before onCreate; the explicit init stays as belt and
+      // braces so the first scan never depends on it.
       MlKitInit.ensure(this)
       val client = ModuleInstall.getClient(this)
       val request = ModuleInstallRequest.newBuilder()

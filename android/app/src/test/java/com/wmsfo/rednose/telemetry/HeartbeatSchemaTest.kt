@@ -13,7 +13,7 @@ import java.io.File
 
 // red-nose.md 8: the heartbeat body must validate against the vendored
 // contracts/schema/heartbeat.schema.json (draft 2020-12).  The typed `health`
-// core is filled from probes; `debug` holds the six groups verbatim.
+// core is filled from probes; `debug` holds the seven groups verbatim.
 class HeartbeatSchemaTest {
 
     private val schema: JsonSchema by lazy {
@@ -48,12 +48,43 @@ class HeartbeatSchemaTest {
                     systemApp = true, rootAvailable = true),
                 identity = IdentityGroup(deviceModel = "Pixel 6a", androidVersion = "14",
                     appVersion = "1.0.3", clockSkewMs = -120L),
+                guard = GuardGroup(
+                    wrong = listOf("mobileData", "permissions"),
+                    wrongSince = "2026-12-22T01:30:07.000Z",
+                    lastWrongItem = "permissions",
+                    lastWrongAt = "2026-12-22T01:31:02.000Z",
+                    seenWrong = GuardCounts(mobileData = 1, permissions = 2),
+                ),
             ),
         )
         val json = BeaconJson.encodeToString(body)
         val node = mapper.readTree(json)
         val errors = schema.validate(node)
         assertEquals("expected no schema errors, got: $errors", 0, errors.size)
+    }
+
+    // red-nose.md 5.5 and 8: the guard group has exactly the reporting fields.
+    @Test fun guard_group_has_the_reporting_shape() {
+        val body = Heartbeat(
+            sentAt = "2026-12-22T01:31:07.000Z",
+            debug = DebugGroup(guard = GuardGroup()),
+        )
+        val json = BeaconJson.encodeToString(body)
+        assertEquals(0, schema.validate(mapper.readTree(json)).size)
+        val guard = mapper.readTree(json).path("debug").path("guard")
+        assertEquals(
+            setOf("wrong", "wrongSince", "lastWrongItem", "lastWrongAt", "seenWrong"),
+            guard.fieldNames().asSequence().toSet(),
+        )
+        assertTrue(guard.path("wrong").isArray)
+        assertEquals(0, guard.path("wrong").size())
+        assertTrue(guard.path("wrongSince").isNull)
+        assertEquals(
+            setOf("airplaneMode", "location", "mobileData", "batterySaver", "permissions",
+                "dozeAllowlist"),
+            guard.path("seenWrong").fieldNames().asSequence().toSet(),
+        )
+        assertTrue(guard.path("seenWrong").all { it.isInt && it.asInt() == 0 })
     }
 
     @Test fun both_groups_null_validates() {

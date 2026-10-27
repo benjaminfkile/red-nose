@@ -33,6 +33,20 @@ class ServiceStateJsonTest {
         assertEquals(expectedFields, obj.keys)
     }
 
+    // red-nose.md 13: neither system app nor root is a checklist row.
+    @Test fun checklist_has_no_system_app_or_root_row() {
+        val json = BeaconJson.encodeToString(sampleState())
+        val checklist = BeaconJson.parseToJsonElement(json).jsonObject["checklist"]!!.jsonObject
+        assertEquals(
+            setOf(
+                "fineLocation", "backgroundLocation", "preciseLocation", "notifications",
+                "batteryOptimizationExempt", "locationServicesOn", "playServices", "phoneState",
+                "airplaneModeOff", "mobileDataOn", "batterySaverOff", "serviceRunning",
+            ),
+            checklist.keys,
+        )
+    }
+
     @Test fun nulls_are_preserved_when_absent() {
         val json = BeaconJson.encodeToString(sampleState())
         val obj = BeaconJson.parseToJsonElement(json).jsonObject
