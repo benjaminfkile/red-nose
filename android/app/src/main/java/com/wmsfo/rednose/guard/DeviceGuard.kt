@@ -89,8 +89,11 @@ class DeviceGuard(
     }
 
     fun start(context: Context) {
-        appContext = context.applicationContext
-        val cr = context.contentResolver
+        // Everything registers on the application context, the one stop()
+        // unregisters on; a service context would leak the receiver at destroy.
+        val app = context.applicationContext
+        appContext = app
+        val cr = app.contentResolver
         val handler = Handler(Looper.getMainLooper())
 
         airplaneObserver = object : ContentObserver(handler) {
@@ -121,7 +124,7 @@ class DeviceGuard(
         }
         try {
             ContextCompat.registerReceiver(
-                context, receiver!!, filter, ContextCompat.RECEIVER_NOT_EXPORTED,
+                app, receiver!!, filter, ContextCompat.RECEIVER_NOT_EXPORTED,
             )
         } catch (_: Throwable) {}
     }
