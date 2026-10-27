@@ -1,126 +1,124 @@
-// Parse the provisioning shell scripts and check the Magisk module tree
-// (red-nose.md 5.3, 14.2, 14.3).  Nothing here runs the scripts; we only
-// confirm they are syntactically well-formed and that every knob 14.2 lists
-// is spelt in provision.sh.
+// The provisioning design guard (red-nose.md 13, 14, 16).  The phone has no
+// root and Red-Nose is a normal app installed over adb; the provisioning
+// script lives in the operator kit, outside this repository, and 14.2 is the
+// design of its rows.  This file checks that provisioning/ holds the runbook
+// alone, that DEVICE.md names every 14.2 row the app depends on and none of
+// the old root commands, that the manifest asks for nothing a normal app
+// cannot have, and that CI only builds and ships the APK.
+//
+// The forbidden strings are built by concatenation so this file never
+// contains them literally (as noDashes does with its characters).
 
-import { execFileSync } from 'child_process';
 import * as fs from 'fs';
 import * as path from 'path';
 
 const ROOT = path.resolve(__dirname, '..');
-const MODULE_DIR = path.join(ROOT, 'provisioning', 'magisk-module');
+const PROVISIONING_DIR = path.join(ROOT, 'provisioning');
 
-function parses(scriptPath: string): void {
-  // `bash -n` and `sh -n` do syntax-only parsing (no execution).
-  execFileSync('bash', ['-n', scriptPath], { stdio: 'pipe' });
-}
-
-describe('provisioning/magisk-module tree', () => {
-  test('module.prop names the module and carries a version', () => {
-    const body = fs.readFileSync(path.join(MODULE_DIR, 'module.prop'), 'utf8');
-    expect(body).toMatch(/^id=rednose\b/m);
-    expect(body).toMatch(/^name=/m);
-    expect(body).toMatch(/^version=\d+\.\d+\.\d+/m);
-    expect(body).toMatch(/^versionCode=\d+/m);
-  });
-
-  test('customize.sh parses and refers to the APK drop path', () => {
-    const script = path.join(MODULE_DIR, 'customize.sh');
-    parses(script);
-    const body = fs.readFileSync(script, 'utf8');
-    expect(body).toMatch(/system\/app\/RedNose\/RedNose\.apk/);
-  });
-
-  test('service.sh parses and implements the 15 s watchdog without touching the launcher', () => {
-    const script = path.join(MODULE_DIR, 'service.sh');
-    parses(script);
-    const body = fs.readFileSync(script, 'utf8');
-    // Section 5.3: pidof + am start-foreground-service on a 15 s loop.  The
-    // launcher re-assert is gone (red-nose.md 5.5, 2026-09-16: no kiosk).
-    expect(body).toMatch(/pidof/);
-    expect(body).toMatch(/am start-foreground-service/);
-    expect(body).toMatch(/sleep\s+["']?15/);
-    expect(body).toMatch(/com\.wmsfo\.rednose:beacon/);
-    expect(body).not.toMatch(/set-home-activity/);
-  });
-
-  test('system/app/RedNose/ tree exists as the APK drop point', () => {
-    const dir = path.join(MODULE_DIR, 'system', 'app', 'RedNose');
-    expect(fs.statSync(dir).isDirectory()).toBe(true);
+describe('provisioning/ (red-nose.md 14)', () => {
+  test('holds DEVICE.md only: no script, no Magisk module', () => {
+    const entries = fs.readdirSync(PROVISIONING_DIR);
+    expect(entries).toEqual(['DEVICE.md']);
   });
 });
 
-describe('provisioning/provision.sh', () => {
-  const script = path.join(ROOT, 'provisioning', 'provision.sh');
-  const body = fs.readFileSync(script, 'utf8');
+describe('provisioning/DEVICE.md (red-nose.md 14.2)', () => {
+  const body = fs.readFileSync(path.join(PROVISIONING_DIR, 'DEVICE.md'), 'utf8');
 
-  test('parses as bash', () => {
-    parses(script);
-  });
-
-  test('routes every device command through `su`', () => {
-    // Every device-touching call goes through the adb_su / adb_su_out helpers,
-    // which shell out to `adb ... shell su -c ...`.
-    expect(body).toMatch(/adb .*shell su -c/);
-    // And there are no bare `adb shell` commands that skip su.
-    const bareAdbShell = body.match(/^\s*adb\b[^\n]*\bshell\b(?!\s+su\b)/gm);
-    expect(bareAdbShell).toBeNull();
-  });
-
-  test('covers every row of section 14.2', () => {
-    // Runtime permissions (14.2 row 1).
-    for (const perm of [
+  test('names every 14.2 row the app depends on', () => {
+    for (const row of [
+      'pm grant',
       'ACCESS_FINE_LOCATION',
       'ACCESS_COARSE_LOCATION',
       'ACCESS_BACKGROUND_LOCATION',
       'POST_NOTIFICATIONS',
       'READ_PHONE_STATE',
+      'appops set',
+      'deviceidle whitelist',
+      'location_mode 3',
+      'stay_on_while_plugged_in 7',
+      'AUTO_REVOKE_PERMISSIONS_IF_UNUSED',
+      'safe_boot_disallowed',
+      'locksettings set-disabled true',
+      'svc data enable',
+      'mobile_data 1',
+      'adb install -r -g',
     ]) {
-      expect(body).toContain(perm);
+      expect(body).toContain(row);
     }
-    // CAMERA is not in the list (red-nose.md 9.1, 14.2): the app does not
-    // declare it and pm grant would fail.
-    expect(body).not.toContain('CAMERA');
-    expect(body).toMatch(/pm grant/);
-    // Location appops (14.2 row 2).
-    expect(body).toMatch(/appops set/);
-    expect(body).toContain('FINE_LOCATION');
-    expect(body).toContain('COARSE_LOCATION');
-    // Battery / Doze (14.2 row 3).
-    expect(body).toMatch(/deviceidle whitelist \+/);
-    // Location mode (14.2 row 4).
-    expect(body).toMatch(/settings put secure location_mode 3/);
-    // Stay awake while charging (14.2 row 5).
-    expect(body).toMatch(/settings put global stay_on_while_plugged_in 7/);
-    // Permission auto-revoke off (14.2, added 2026-09-16 with no kiosk).
-    expect(body).toContain('AUTO_REVOKE_PERMISSIONS_IF_UNUSED');
-    // Safe boot disallowed (14.2 row 9).
-    expect(body).toMatch(/settings put global safe_boot_disallowed 1/);
-    // No launcher / keyguard / immersive rows (red-nose.md 5.5, 14.2).
-    expect(body).not.toMatch(/set-home-activity/);
-    expect(body).not.toMatch(/locksettings/);
-    expect(body).not.toMatch(/immersive_mode_confirmations/);
   });
 
-  test('reads each value back and prints a final summary', () => {
-    // Each row uses expect / expect_contains / expect_nonempty; the summary
-    // reports passed / failed counts.
-    expect(body).toMatch(/passed:/);
-    expect(body).toMatch(/failed:/);
-    expect(body).toMatch(/settings get secure location_mode/);
-    expect(body).toMatch(/dumpsys package/);
-    expect(body).toMatch(/appops get .*AUTO_REVOKE_PERMISSIONS_IF_UNUSED/);
+  test('carries none of the old root commands', () => {
+    // Section 1 tells the history and may say the word Magisk; these are the
+    // commands that must not come back.
+    for (const forbidden of [
+      'CAM' + 'ERA',
+      's' + 'u -c',
+      'set-home' + '-activity',
+      'mag' + 'isk --install' + '-module',
+    ]) {
+      expect(body).not.toContain(forbidden);
+    }
+  });
+
+  test('names no private network address', () => {
+    const PRIVATE_ADDRESS =
+      /\b(?:192\.168\.\d{1,3}\.\d{1,3}|10\.\d{1,3}\.\d{1,3}\.\d{1,3}|172\.(?:1[6-9]|2\d|3[01])\.\d{1,3}\.\d{1,3})\b/;
+    expect(body).not.toMatch(PRIVATE_ADDRESS);
   });
 });
 
-describe('AndroidManifest.xml (red-nose.md 5.5: no kiosk)', () => {
+describe('AndroidManifest.xml (red-nose.md 5.5, 14: a normal app, no kiosk)', () => {
   const manifest = fs.readFileSync(
     path.join(ROOT, 'android', 'app', 'src', 'main', 'AndroidManifest.xml'),
     'utf8',
   );
 
   test('MAIN intent-filter carries LAUNCHER, no HOME category', () => {
-    expect(manifest).toContain('android.intent.category.LAUNCHER');
+    const filters = manifest.match(/<intent-filter>[\s\S]*?<\/intent-filter>/g) ?? [];
+    const main = filters.filter(f => f.includes('android.intent.action.MAIN'));
+    expect(main).toHaveLength(1);
+    expect(main[0]).toContain('android.intent.category.LAUNCHER');
     expect(manifest).not.toContain('android.intent.category.HOME');
+  });
+
+  test('is not persistent', () => {
+    expect(manifest).not.toContain('android:persistent');
+  });
+
+  test('requests no signature or privileged permission', () => {
+    for (const perm of [
+      'INSTALL_PACKAGES',
+      'WRITE_SECURE_SETTINGS',
+      'MODIFY_PHONE_STATE',
+      'GRANT_RUNTIME_PERMISSIONS',
+    ]) {
+      expect(manifest).not.toContain(`android.permission.${perm}`);
+    }
+  });
+});
+
+describe('.github/workflows/android.yml (red-nose.md 16: CI ships the APK only)', () => {
+  const workflow = fs.readFileSync(
+    path.join(ROOT, '.github', 'workflows', 'android.yml'),
+    'utf8',
+  );
+  // A comment may say how the artifact goes on the phone; no step may run it.
+  const steps = workflow
+    .split('\n')
+    .filter(line => !line.trimStart().startsWith('#'))
+    .join('\n');
+
+  test('installs nothing on a device', () => {
+    expect(steps).not.toContain('adb install');
+  });
+
+  test('builds no Magisk module', () => {
+    expect(workflow.toLowerCase()).not.toContain('magisk');
+  });
+
+  test('uploads exactly one artifact', () => {
+    const uploads = workflow.match(/uses: actions\/upload-artifact/g) ?? [];
+    expect(uploads).toHaveLength(1);
   });
 });
