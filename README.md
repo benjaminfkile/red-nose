@@ -46,4 +46,4 @@ CI (`.github/workflows/android.yml`, section 16 of the design) uploads `red-nose
 adb install -r -g red-nose-dev-<version>-<sha>.apk
 ```
 
-Then `adb reboot`: the install kills the app and only the boot receiver starts the service again. The enrollment and every setting survive. Then re-run the operator kit's provisioning script with its install step skipped so every row is read back, and verify as in `provisioning/DEVICE.md` section 8. First-time setup of a phone (ROM, provisioning, enrollment) is `docs/red-nose.md` 14 and `provisioning/DEVICE.md`.
+No reboot: the install kills the app and its boot receiver, which also answers the package-replaced broadcast, starts the service again within a minute. The enrollment and every setting survive. Then re-run the operator kit's provisioning script with its install step skipped so every row is read back, and verify as in `provisioning/DEVICE.md` section 8. First-time setup of a phone (ROM, provisioning, enrollment) is `docs/red-nose.md` 14 and `provisioning/DEVICE.md`.

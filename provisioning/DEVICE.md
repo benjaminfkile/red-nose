@@ -144,11 +144,11 @@ from the simulator beacon.
 adb install -r -g red-nose-<flavour>-<version>-<sha>.apk
 ```
 
-then `adb reboot`, then the provisioning script again with its install step
-skipped, so every row is read back. The reboot is required: the install kills
-the app and nothing restarts the service until the boot receiver does; the
-service was foreground again well inside two minutes of the reboot on
-2026-10-27. The enrollment and every setting survive.
+then the provisioning script again with its install step skipped, so every
+row is read back. No reboot: the install kills the app, and the app's boot
+receiver also answers the package-replaced broadcast and starts the service
+again within a minute (`docs/red-nose.md` 5.1, 14.3). The enrollment and
+every setting survive.
 
 Only CI builds go on the phone: `adb install -r` refuses an APK signed with
 a different key, and uninstalling to switch keys loses the enrollment. A

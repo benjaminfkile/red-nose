@@ -248,12 +248,13 @@ export type ServiceState = {
 
 ### 5.1 Lifecycle
 
-`BeaconService` runs in process `:beacon`. Every start reaches it through `startForegroundService` (`BootReceiver`, `saveEnrollment`, the platform's `START_STICKY` recreate), so `onStartCommand` always calls `startForeground` with type `location`, enrolled or not; without that the platform kills the process a few seconds after each start. Before enrollment the fix source and the loops stay idle and the notification shows the socket state. The UI binds to it in either state.
+`BeaconService` runs in process `:beacon`. Every start reaches it through `startForegroundService` (`BootReceiver` at boot and after a package update, `saveEnrollment`, the platform's `START_STICKY` recreate), so `onStartCommand` always calls `startForeground` with type `location`, enrolled or not; without that the platform kills the process a few seconds after each start. Before enrollment the fix source and the loops stay idle and the notification shows the socket state. The UI binds to it in either state.
 
 | Event | Action |
 |---|---|
 | `saveEnrollment` | Store fields, `startForegroundService`, `startForeground(id, notification, FOREGROUND_SERVICE_TYPE_LOCATION)`, start the fix source and the three loops |
 | `BOOT_COMPLETED` | `BootReceiver` (in `:beacon`) reads the store; enrollment present: `startForegroundService`. Background location is granted at provisioning, so the location foreground service is allowed to start from boot; the reboot drill (section 17) proves it on the chosen phone, and the checklist (section 13) shows the permission state so a missing grant is visible, never guessed around |
+| `MY_PACKAGE_REPLACED` | the same `BootReceiver`, same action: a package update (`adb install -r`, 14.3) kills the app's processes and the platform starts nothing afterwards, so the receiver reads the store and, enrollment present, `startForegroundService`. The broadcast is exempt from the background foreground-service start restrictions, and the app is on the battery-optimization allowlist besides |
 | `onTaskRemoved` | Ignored; the service is not tied to the task |
 | `onDestroy` | Only after `clearEnrollment` or a system kill. `START_STICKY` asks the system to recreate it (5.3) |
 | `onLowMemory`, `onTrimMemory` | Logged with the level; nothing is released (the service holds one fix and one telemetry value) |
@@ -274,7 +275,7 @@ Survival is the platform's job, not a userspace watchdog's and not root's. Three
 |---|---|
 | Foreground service on the Doze allowlist | a foreground service of type `location` with an ongoing notification is user-visible work: the platform does not kill it to save memory or battery short of the device running out of memory, and the Doze allowlist plus the battery-optimization exemption (set at provisioning, section 14.2) keep every background restriction away from it. A clean Android build has no manufacturer task killer on top (section 14) |
 | `START_STICKY` | the foreground service asks the system to recreate it after a kill, and the recreate reaches `onStartCommand` like every other start (5.1) |
-| `BootReceiver` (`:beacon`) | at boot the receiver reads the store and starts the foreground service (section 5.1); the reboot drill (section 17) proves the time to the first heartbeat |
+| `BootReceiver` (`:beacon`) | at boot, and after a package update (`MY_PACKAGE_REPLACED`), the receiver reads the store and starts the foreground service (section 5.1); the reboot drill (section 17) proves the time to the first heartbeat, the update drill the time after an install |
 
 There is no `WorkManager` worker, no exact alarm, no root script, and no `android:persistent` (the platform honours it for system apps only; on a normal app it is noise). What the platform will not undo on its own, the design accepts as a human act on a mounted phone nobody touches: a force stop from Settings or `adb` keeps the service down until the next boot or the next launch of the app, and a disabled app does not run. Android safe mode would disable every non-system app, so provisioning disallows it (14.2); the app's data is untouched by any boot mode either way. `BeaconService.isRunning` (a static flag set in `onCreate`, cleared in `onDestroy`) is what the checklist reads.
 
@@ -609,7 +610,7 @@ What the design accepts: the bootloader stays unlocked (a custom ROM needs it, a
 
 ### 14.3 Updating Red-Nose
 
-An update is `adb install -r -g <new apk>` from any machine with `adb` (the cable, or wireless adb on the bench network), then `adb reboot`, then the provisioning script again with its install step skipped so every row is read back. The reboot is required: a package update kills the app's processes and the platform starts nothing afterwards (opening the app only binds the service, which the platform freezes and drops again), so the boot receiver (5.3) is what brings the beacon back. The enrollment and every setting survive: the app is a normal package, and `-r` replaces the code in place. Never `pm clear` the package (it drops the enrollment, which is Keystore-bound and cannot be restored from a copy, 9.3) and never `adb uninstall` it for an update.
+An update is `adb install -r -g <new apk>` from any machine with `adb` (the cable, or wireless adb on the bench network), then the provisioning script again with its install step skipped so every row is read back. No reboot: a package update kills the app's processes and the platform starts nothing on its own afterwards (opening the app only binds the service, which the platform freezes and drops again), so `BootReceiver` also handles `MY_PACKAGE_REPLACED` and starts the foreground service exactly as at boot (5.1); the service is foreground again within a minute of the install. The enrollment and every setting survive: the app is a normal package, and `-r` replaces the code in place. Never `pm clear` the package (it drops the enrollment, which is Keystore-bound and cannot be restored from a copy, 9.3) and never `adb uninstall` it for an update.
 
 Only CI builds go on the phone. The installed package is signed with the flavour's release key (section 15); `adb install -r` refuses an APK with a different signature, and uninstalling to switch signatures loses the enrollment. A locally built APK (debug keystore) therefore never replaces a CI build; it goes on an emulator or a spare phone.
 
@@ -641,7 +642,7 @@ The beacon phone is a Moto G 5G (2024), Motorola codename `fogo`, model XT2417-1
 
 ## 16. Branch flow and CI
 
-`dev` and `main`. `.github/workflows/android.yml` on every push to `dev` or `main` (not `grunt`, whose content reaches `dev` anyway), on the self-hosted runner `nimbus` (the operator's Linux build box, registered to this repository as a systemd service; persistent Gradle and npm caches). The repository is public, so the runner is guarded three ways: the workflow has no `pull_request` trigger (pushes to `dev` and `main` and a manual run only, which need write access; a fork's own pushes run in the fork, which has no runner), the repository setting that holds workflows from outside contributors for approval is at its strictest, and the signing keys sit in environments that admit their own branch only. The workflow still runs unchanged on a GitHub-hosted runner if `runs-on` is switched back: JS unit tests, `./gradlew :app:testDevDebugUnitTest`, then `assembleDevRelease` on `dev` and `assembleProdRelease` on `main`, signed, arm64-v8a only (the beacon phone's ABI, section 14.4; other ABIs build locally only). CI uploads one artifact, `red-nose-<flavour>-<version>-<sha>.apk`. No store, no auto-update; the phone is updated with `adb install -r -g` and a reboot (14.3).
+`dev` and `main`. `.github/workflows/android.yml` on every push to `dev` or `main` (not `grunt`, whose content reaches `dev` anyway), on the self-hosted runner `nimbus` (the operator's Linux build box, registered to this repository as a systemd service; persistent Gradle and npm caches). The repository is public, so the runner is guarded three ways: the workflow has no `pull_request` trigger (pushes to `dev` and `main` and a manual run only, which need write access; a fork's own pushes run in the fork, which has no runner), the repository setting that holds workflows from outside contributors for approval is at its strictest, and the signing keys sit in environments that admit their own branch only. The workflow still runs unchanged on a GitHub-hosted runner if `runs-on` is switched back: JS unit tests, `./gradlew :app:testDevDebugUnitTest`, then `assembleDevRelease` on `dev` and `assembleProdRelease` on `main`, signed, arm64-v8a only (the beacon phone's ABI, section 14.4; other ABIs build locally only). CI uploads one artifact, `red-nose-<flavour>-<version>-<sha>.apk`. No store, no auto-update; the phone is updated with `adb install -r -g` (14.3).
 
 ---
 
@@ -653,6 +654,7 @@ Runs on the real device against the dev API for at least 30 days before December
 |---|---|
 | Unattended, charging | heartbeat gap never exceeds 60 s over the whole soak; `serviceRestartCount` stays 0 between reboots |
 | Reboot | first heartbeat within 120 s of boot without touching the phone |
+| `adb install -r -g` of a build over the running one | service foreground again within 60 s of the install with no reboot and no touch, enrollment intact, heartbeats resume |
 | Airplane mode switched on from quick settings, switched off again after a minute | `guard wrong airplaneMode` in the log within 5 s and `debug.guard.wrong` carrying `airplaneMode` in the first heartbeat after the network returns; `guard ok airplaneMode` once it is off; first delivered fix within 15 s of the network returning |
 | Kill from recents | the UI process dies, the `:beacon` process does not; heartbeats continue |
 | `adb shell am force-stop com.wmsfo.rednose`, then reboot | the service stays down until the reboot (accepted, 5.3) and is back within 120 s of boot |
@@ -691,4 +693,3 @@ Every drill is logged in the repository under `docs/soak/<date>.md` with the obs
 ## 19. Needs a decision
 
 - Remote management of the mounted phone: installing a build and reading logs from anywhere, without a person on site. Nothing in the app depends on the answer; the candidate is a mesh VPN on the phone with `adb` over it, decided outside this document.
-- An update without a reboot: a receiver for `ACTION_MY_PACKAGE_REPLACED` in `:beacon` that starts the foreground service when an enrollment exists, the way `BootReceiver` does (the broadcast is exempt from the background start restrictions, and the app is on the battery-optimization allowlist). Until it exists, 14.3 reboots after every install.
