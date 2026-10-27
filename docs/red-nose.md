@@ -1,6 +1,6 @@
 # Red-Nose technical design
 
-Red-Nose is the WMSFO v2 beacon app: a React Native user interface over a native Kotlin foreground service, Android only. It runs as a persistent system app on a rooted (Magisk) phone; root is the tool for everything the platform would otherwise make hard: it keeps the service alive across kills and low memory, grants every permission, configures the device from the shell with no user taps, and lets the service switch back on anything the beacon needs that someone switches off. The phone stays an ordinary phone: the stock launcher, the status and navigation bars, and every other app work as shipped, and Red-Nose is one app among them. The app never asks the user for anything. The service owns GPS, the send loops, and telemetry; the JavaScript side owns the screens, enrollment, and debug mode. Every name, shape, path, and rule below is the one in the shared contracts (`contracts.md`); where this document restates a contract it does so for the engineer's convenience and the contract wins on any difference.
+Red-Nose is the WMSFO v2 beacon app: a React Native user interface over a native Kotlin foreground service, Android only. It runs as an ordinary app on a phone that carries a clean Android build (LineageOS on the phone we own, section 14) with Google Play services and nothing else: no manufacturer updater, no manufacturer task killer, no root. Everything the platform would otherwise make hard is done once from `adb` at provisioning (every permission granted, every setting set, no user taps), and the platform's own mechanisms keep the service alive: a foreground service, the Doze allowlist, `START_STICKY`, and a boot receiver. The app's data lives in `/data` like any app's, so no boot mode can make the platform see it as uninstalled. The phone stays an ordinary phone: the launcher, the status and navigation bars, and every other app work as shipped, and Red-Nose is one app among them. The app never asks the user for anything. The service owns GPS, the send loops, and telemetry; the JavaScript side owns the screens, enrollment, and debug mode. Every name, shape, path, and rule below is the one in the shared contracts (`contracts.md`); where this document restates a contract it does so for the engineer's convenience and the contract wins on any difference.
 
 ---
 
@@ -8,13 +8,13 @@ Red-Nose is the WMSFO v2 beacon app: a React Native user interface over a native
 
 | Item | Value |
 |---|---|
-| Platform | Android 10 (API 29) or newer. `minSdk 29`; `compileSdk` and `targetSdk` as the React Native template sets them (37 and 36 today). Google Play services present (fused location). Rooted with Magisk. |
-| Install | System app under `/system/app/RedNose/` with `android:persistent="true"`. Not a normal user-installed package. Red-Nose requests no signature or privileged permission, so it needs neither `/system/priv-app` nor a privileged-permission allowlist. |
+| Platform | Android 10 (API 29) or newer. `minSdk 29`; `compileSdk` and `targetSdk` as the React Native template sets them (37 and 36 today). Google Play services present (fused location, code scanner). Not rooted; the phone we own runs LineageOS (section 14). |
+| Install | A normal app, installed with `adb install -r -g`. Its data lives in `/data`, so no boot mode can make the platform see it as uninstalled. Red-Nose requests only normal and runtime permissions, never a signature or privileged one, so it needs neither `/system/priv-app` nor a privileged-permission allowlist and runs on any Android build. |
 | UI | React Native, bare CLI template (no Expo), TypeScript, Hermes. |
-| Native | Kotlin. One foreground service in its own process, one React Native native module in the app process, one boot receiver. Process survival is the platform's, not a userspace watchdog's (section 5.3). |
+| Native | Kotlin. One foreground service in its own process, one React Native native module in the app process, one boot receiver. Process survival is the platform's, not a userspace watchdog's and not root's (section 5.3). |
 | Application id | `com.wmsfo.rednose` in both flavours (section 15). |
 | Processes | `com.wmsfo.rednose` (React Native UI) and `com.wmsfo.rednose:beacon` (the service). The service process never loads React Native. |
-| Distribution | Packaged as a Magisk module (the signed APK plus a `service.sh` boot script); flashed on a rooted phone, one signing key, no store. |
+| Distribution | The signed APK that CI builds (section 16), installed over `adb`; one signing key per flavour, no store, no self-update. |
 | Roles | None. The API knows Red-Nose only as a key; debug mode is always available to whoever holds the phone. |
 | Storage | Enrollment fields in Keystore-backed `EncryptedSharedPreferences`, a ring-buffer log file, and two per-boot counters. No fixes are ever stored. |
 
@@ -90,16 +90,13 @@ red-nose/
       replay/Route.kt  RouteSchema.kt  # the route object and its check against the vendored schema
       replay/ReplayFixSource.kt        # FixSource that plays a route
       checklist/Checklist.kt           # every first-run item, verified from system APIs
-      guard/DeviceGuard.kt             # watches the settings the beacon needs and switches them back on (section 5.5)
+      guard/DeviceGuard.kt             # watches the settings the beacon needs and reports them when wrong (section 5.5)
       guard/DeviceState.kt  MobileData.kt  # the read side of 5.5; the per-SIM mobile data switch
-      guard/RootShell.kt               # su -c on a background executor with a timeout
     app/src/main/res/xml/network_security_config.xml       # prod: cleartext off
     app/src/dev/res/xml/network_security_config.xml        # dev: cleartext allowed
     app/src/test/resources/conformance/                    # shared socket loop conformance scenarios (section 7.4), copied from beacon-library at CONFORMANCE_SHA
   provisioning/
-    magisk-module/                     # module.prop, customize.sh, service.sh (root watchdog), system/app/RedNose/ tree
-    provision.sh                       # adb+root: pm grant, appops, deviceidle whitelist, settings, root policy, safe boot off
-    DEVICE.md                          # the runbook for the phone we own (section 14.4)
+    DEVICE.md                          # the runbook for the phone we own (section 14.4); the provisioning script itself lives in the operator kit (section 14.2)
   .github/workflows/android.yml
 ```
 
@@ -134,9 +131,9 @@ JavaScript dependencies: `react-native`, `@react-navigation/native` with the nat
 | Telemetry collection | Service | Section 8 |
 | Log ring buffer and log upload | Service | JS asks for it; the service holds the key and the file |
 | Replay | Service | JS supplies the source and rate; the service plays it |
-| Process survival | Platform and root | Persistent system app (low-memory-exempt, restarted by the platform), `START_STICKY`, the `:beacon` boot receiver, and a Magisk `service.sh` root script (section 5.3) |
-| Permissions, Doze allowlist, location mode, safe boot, OTA | Root provisioning | Granted and set from the shell at provisioning (section 14). The app requests nothing at runtime and opens no settings screen; the checklist only reports |
-| Keeping what the beacon needs switched on | Service (`DeviceGuard`) | Airplane mode off, location on, mobile data on, battery saver off, the runtime permission grants, the Doze allowlist: restored with root whenever someone changes them (section 5.5) |
+| Process survival | Platform | A foreground service of type `location` on the Doze allowlist, `START_STICKY`, and the `:beacon` boot receiver (section 5.3) |
+| Permissions, Doze allowlist, location mode, safe boot, updates | `adb` provisioning | Granted and set from the shell at provisioning (section 14). The app requests nothing at runtime and opens no settings screen; the checklist only reports |
+| Watching what the beacon needs | Service (`DeviceGuard`) | Airplane mode off, location on, mobile data on, battery saver off, the runtime permission grants, the Doze allowlist: read on every change and every sweep, logged and reported in the heartbeat when wrong; nothing on the phone can switch them back without root (section 5.5) |
 
 The service never calls into JS. The module binds to the service only while an Activity is resumed and unbinds on pause. A crash, freeze, or kill of the UI process changes nothing in the `:beacon` process; the UI reconnects on next launch and reads the current state.
 
@@ -197,7 +194,7 @@ export type NativeRedNose = {
 };
 ```
 
-There is no permission request and no settings-screen intent in the module: provisioning grants every permission with root (section 14) and the checklist reports the result. A red checklist row means re-run `provision.sh`, not tap through a dialog.
+There is no permission request and no settings-screen intent in the module: provisioning grants every permission over `adb` (section 14) and the checklist reports the result. A red checklist row means re-run the provisioning rows, not tap through a dialog.
 
 Events on `DeviceEventEmitter`: `rednose.state` (a `ServiceState`), `rednose.log` (a string), `rednose.logUpload` (the upload result object). The module registers its `IBeaconListener` on bind and forwards each callback as one event.
 
@@ -251,14 +248,14 @@ export type ServiceState = {
 
 ### 5.1 Lifecycle
 
-`BeaconService` runs in process `:beacon`. Every start reaches it through `startForegroundService` (`BootReceiver`, `saveEnrollment`, the `service.sh` watchdog), so `onStartCommand` always calls `startForeground` with type `location`, enrolled or not; without that the platform kills the process a few seconds after each start. Before enrollment the fix source and the loops stay idle and the notification shows the socket state. The UI binds to it in either state.
+`BeaconService` runs in process `:beacon`. Every start reaches it through `startForegroundService` (`BootReceiver`, `saveEnrollment`, the platform's `START_STICKY` recreate), so `onStartCommand` always calls `startForeground` with type `location`, enrolled or not; without that the platform kills the process a few seconds after each start. Before enrollment the fix source and the loops stay idle and the notification shows the socket state. The UI binds to it in either state.
 
 | Event | Action |
 |---|---|
 | `saveEnrollment` | Store fields, `startForegroundService`, `startForeground(id, notification, FOREGROUND_SERVICE_TYPE_LOCATION)`, start the fix source and the three loops |
 | `BOOT_COMPLETED` | `BootReceiver` (in `:beacon`) reads the store; enrollment present: `startForegroundService`. Background location is granted at provisioning, so the location foreground service is allowed to start from boot; the reboot drill (section 17) proves it on the chosen phone, and the checklist (section 13) shows the permission state so a missing grant is visible, never guessed around |
 | `onTaskRemoved` | Ignored; the service is not tied to the task |
-| `onDestroy` | Only after `clearEnrollment` or a system kill. `START_STICKY` asks the system to recreate it; as a persistent system app the platform also restarts the process, and the `service.sh` root script (5.3) covers anything the platform does not |
+| `onDestroy` | Only after `clearEnrollment` or a system kill. `START_STICKY` asks the system to recreate it (5.3) |
 | `onLowMemory`, `onTrimMemory` | Logged with the level; nothing is released (the service holds one fix and one telemetry value) |
 
 Notification: channel `beacon`, importance low, ongoing, not dismissible, text is the socket state and the age of the last delivered fix, updated at most once per 5 s. It is the only visible surface on a locked device.
@@ -266,21 +263,20 @@ Notification: channel `beacon`, importance low, ongoing, not dismissible, text i
 ### 5.2 Wake locks and power
 
 - The service holds a `PARTIAL_WAKE_LOCK` for its whole life. Location updates every 250 ms keep the radio awake anyway; the wake lock keeps the send loop scheduled during the gaps.
-- Doze: provisioning puts the package on the device idle allowlist with root (`dumpsys deviceidle whitelist +com.wmsfo.rednose`), so Doze deferral never applies; the checklist shows the state.
+- Doze: provisioning puts the package on the device idle allowlist from `adb` (`dumpsys deviceidle whitelist +com.wmsfo.rednose`), so Doze deferral never applies; the checklist shows the state.
 - Screen: the service never touches the screen. Provisioning (section 14) sets stay-awake-while-charging on the device so the notification stays visible.
 
 ### 5.3 Process survival
 
-Survival is the platform's job and root's, not a userspace watchdog's. Four layers, each a no-op when the service is already running:
+Survival is the platform's job, not a userspace watchdog's and not root's. Three layers, each a no-op when the service is already running:
 
 | Layer | Mechanism |
 |---|---|
-| Persistent system app | `android:persistent="true"` on a `/system/app` package: the app's process is exempt from low-memory kills and the platform restarts it immediately if it dies |
-| `START_STICKY` | the foreground service asks the system to recreate it after a kill |
-| `BootReceiver` (`:beacon`) | at boot the receiver reads the store and starts the foreground service (section 5.1) |
-| Magisk `service.sh` | a root boot script that starts the service and, every 15 s, force-starts it (`am start-foreground-service`) if `pidof` shows the `:beacon` process gone; running as root outside the app, it is the guarantee the other three layers are measured against. It never touches the launcher or any other setting |
+| Foreground service on the Doze allowlist | a foreground service of type `location` with an ongoing notification is user-visible work: the platform does not kill it to save memory or battery short of the device running out of memory, and the Doze allowlist plus the battery-optimization exemption (set at provisioning, section 14.2) keep every background restriction away from it. A clean Android build has no manufacturer task killer on top (section 14) |
+| `START_STICKY` | the foreground service asks the system to recreate it after a kill, and the recreate reaches `onStartCommand` like every other start (5.1) |
+| `BootReceiver` (`:beacon`) | at boot the receiver reads the store and starts the foreground service (section 5.1); the reboot drill (section 17) proves the time to the first heartbeat |
 
-There is no `WorkManager` worker and no exact alarm; the persistent process plus the root script replace both. Whether the platform's persistent treatment extends to the secondary `:beacon` process or only to the main process is verified in the soak (section 17, the `kill -9` drill); either answer is acceptable because the root script restarts the process within 15 s regardless. `BeaconService.isRunning` (a static flag set in `onCreate`, cleared in `onDestroy`) is what the checklist reads.
+There is no `WorkManager` worker, no exact alarm, no root script, and no `android:persistent` (the platform honours it for system apps only; on a normal app it is noise). What the platform will not undo on its own, the design accepts as a human act on a mounted phone nobody touches: a force stop from Settings or `adb` keeps the service down until the next boot or the next launch of the app, and a disabled app does not run. Android safe mode would disable every non-system app, so provisioning disallows it (14.2); the app's data is untouched by any boot mode either way. `BeaconService.isRunning` (a static flag set in `onCreate`, cleared in `onDestroy`) is what the checklist reads.
 
 ### 5.4 Restart counters
 
@@ -288,24 +284,24 @@ There is no `WorkManager` worker and no exact alarm; the persistent process plus
 
 ### 5.5 Device guard
 
-The phone is an ordinary phone that anyone may use for other apps. Whatever the beacon needs from the device, the service keeps switched on: when someone (or something) switches one of the items below off, `DeviceGuard` switches it back on with root, logs it, and counts it. There is no pause, no override, and no setting that disables the guard; it runs whenever the `:beacon` process runs, enrolled or not.
+The phone is an ordinary phone that anyone may use for other apps. Whatever the beacon needs from the device, the service watches: when someone (or something) switches one of the items below off, `DeviceGuard` sees it within a sweep, logs it, counts it, and reports it in every heartbeat until it is back. It cannot switch anything back: without root an app holds none of the permissions those switches need (`MODIFY_PHONE_STATE`, `WRITE_SECURE_SETTINGS`, `GRANT_RUNTIME_PERMISSIONS`), and root is not on the phone by design (section 14). The fix for a wrong item is a human with `adb` (the provisioning rows of 14.2, re-run) or the phone's own quick settings. There is no pause, no override, and no setting that disables the guard; it runs whenever the `:beacon` process runs, enrolled or not.
 
-| Item | Needed state, read from | Restored with (`su -c`) |
+| Item | Needed state, read from | Put right by |
 |---|---|---|
-| Airplane mode | off: `Settings.Global.AIRPLANE_MODE_ON` is 0 | `cmd connectivity airplane-mode disable` |
-| Location | on: `LocationManager.isLocationEnabled` | `cmd location set-location-enabled true` |
-| Mobile data | on: `TelephonyManager.isDataEnabled` for the default data subscription (the switch is kept per SIM in `Settings.Global` `mobile_data<subId>`, which is the fallback read; the plain `mobile_data` key can stay 1 while data is off) | `svc data enable` |
-| Battery saver | off: `PowerManager.isPowerSaveMode` is false (battery saver can switch GPS off while the screen is off) | `cmd power set-mode 0` |
-| Runtime permissions | granted: `checkSelfPermission` for `ACCESS_FINE_LOCATION`, `ACCESS_COARSE_LOCATION`, `ACCESS_BACKGROUND_LOCATION`, `POST_NOTIFICATIONS`, `READ_PHONE_STATE` | `pm grant com.wmsfo.rednose <permission>` for each missing one, then `appops set com.wmsfo.rednose FINE_LOCATION allow` and `COARSE_LOCATION allow` |
-| Doze allowlist | exempt: `PowerManager.isIgnoringBatteryOptimizations` | `dumpsys deviceidle whitelist +com.wmsfo.rednose` |
+| Airplane mode | off: `Settings.Global.AIRPLANE_MODE_ON` is 0 | quick settings, or `adb shell cmd connectivity airplane-mode disable` |
+| Location | on: `LocationManager.isLocationEnabled` | quick settings, or `adb shell settings put secure location_mode 3` |
+| Mobile data | on: `TelephonyManager.isDataEnabled` for the default data subscription (the switch is kept per SIM in `Settings.Global` `mobile_data<subId>`, which is the fallback read; the plain `mobile_data` key can stay 1 while data is off) | quick settings, or `adb shell svc data enable` |
+| Battery saver | off: `PowerManager.isPowerSaveMode` is false (battery saver can switch GPS off while the screen is off) | quick settings, or `adb shell cmd power set-mode 0` |
+| Runtime permissions | granted: `checkSelfPermission` for `ACCESS_FINE_LOCATION`, `ACCESS_COARSE_LOCATION`, `ACCESS_BACKGROUND_LOCATION`, `POST_NOTIFICATIONS`, `READ_PHONE_STATE` | the permission rows of 14.2 (`pm grant` and `appops set` over `adb`) |
+| Doze allowlist | exempt: `PowerManager.isIgnoringBatteryOptimizations` | `adb shell dumpsys deviceidle whitelist +com.wmsfo.rednose` |
 
-**When it checks.** Immediately on every change the platform announces: a `ContentObserver` on `AIRPLANE_MODE_ON`, `mobile_data`, and `mobile_data<subId>` of the default data subscription, and a receiver for `LocationManager.MODE_CHANGED_ACTION` and `PowerManager.ACTION_POWER_SAVE_MODE_CHANGED`, all registered in `:beacon`. As a backstop for changes that announce nothing (a revoked permission, the Doze allowlist), a full sweep of every item runs once when the service is created and then every `REDNOSE_GUARD_SWEEP_MS` (5000). A check reads the system API only; a root command runs only when an item is in the wrong state.
+**When it checks.** Immediately on every change the platform announces: a `ContentObserver` on `AIRPLANE_MODE_ON`, `mobile_data`, and `mobile_data<subId>` of the default data subscription, and a receiver for `LocationManager.MODE_CHANGED_ACTION` and `PowerManager.ACTION_POWER_SAVE_MODE_CHANGED`, all registered in `:beacon`. As a backstop for changes that announce nothing (a revoked permission, the Doze allowlist), a full sweep of every item runs once when the service is created and then every `REDNOSE_GUARD_SWEEP_MS` (5000). A check reads the system API only; the guard runs no shell command and holds no shell. Sweeps never overlap; a request that arrives during a sweep causes exactly one more sweep after it.
 
-**How it restores.** Root commands run on `RootShell`, a single background thread with a 5 s timeout per command, so the beacon dispatcher never blocks (7.1). After a command the guard reads the item again, every 100 ms for up to 2 s because some switches apply asynchronously (`svc data enable`): back in the needed state within that window is a restore; still wrong is a failure, retried on the next sweep, forever. Nothing gives up and nothing backs off beyond the sweep interval. Revoking a runtime permission kills the app's processes; the `service.sh` watchdog brings `:beacon` back (5.3), the guard's creation sweep regrants, and the fix source starts once the location grants are back: `startFixSource` runs only after the creation sweep, and a fix source whose start threw a `SecurityException` is started again after the next sweep that regrants.
+**What it records.** An item found wrong when it was right at the previous sweep writes one ring-log line at WARN, `guard wrong <item>`, and counts one for that item; an item found right when it was wrong writes one line at INFO, `guard ok <item> after=<ms>` (ms since it was first seen wrong). Nothing is repeated while the state holds. `debug.guard` in the heartbeat (section 8) carries `wrong` (the names of every item wrong right now, in sweep order, empty when all is well), `wrongSince` (when the oldest of them was first seen wrong, null when none), `lastWrongItem` and `lastWrongAt` (the latest transition into wrong), and `seenWrong`, a count per item of the times it was found wrong since the service started. The admin panel shows the group verbatim; a non-empty `wrong` on a mounted beacon is the operator's signal to reach for `adb`.
 
-**What it records.** Every restore writes one ring-log line at INFO, `guard restored <item> took=<ms>`, and every failure one line at WARN, `guard restore failed <item> err=<text>`, at most once per minute per item. `debug.guard` in the heartbeat (section 8) carries a restore counter per item since the service started, `lastRestoredItem`, `lastRestoredAt`, and `lastError`.
+**Permissions.** Revoking a runtime permission kills the app's processes; `START_STICKY` and the boot receiver bring `:beacon` back (5.3) and the creation sweep finds the permissions item wrong. `startFixSource` runs only after the creation sweep, and a fix source whose start threw a `SecurityException` stays the pending one: when a later sweep finds the permissions item right again (someone re-ran the permission rows over `adb`), the service restarts `GnssStats` and the fix source.
 
-**What it does not do.** It does not keep Red-Nose in front, hide the bars, disable the lock screen, or touch Wi-Fi, volume, the screen, or any app. It does not stop anyone from force-stopping the app (the watchdog restarts it within 15 s) or disabling it in Settings (a disabled system app does not run; that is accepted). A screen lock with a PIN, pattern, or password must never be set on the phone: before the first unlock after a boot the credential-encrypted store holding the enrollment is unreadable, so the service could not start until someone unlocks (a swipe-only lock screen is fine).
+**What it does not do.** It does not keep Red-Nose in front, hide the bars, disable the lock screen, or touch Wi-Fi, volume, the screen, or any app. It does not stop anyone from force-stopping the app or disabling it in Settings (5.3). A screen lock with a PIN, pattern, or password must never be set on the phone: before the first unlock after a boot the credential-encrypted store holding the enrollment is unreadable, so the service could not start until someone unlocks (provisioning disables the keyguard, 14.2).
 
 ---
 
@@ -486,14 +482,15 @@ One `Json { encodeDefaults = true; explicitNulls = true; ignoreUnknownKeys = tru
 | `process.memoryPressure` | last `onTrimMemory` level mapped to the contract names, `normal` when none |
 | `process.batteryOptimizationExempt` | `PowerManager.isIgnoringBatteryOptimizations` |
 | `process.notificationPermission` | `NotificationManager.areNotificationsEnabled` |
-| `process.systemApp` | `ApplicationInfo.flags` has `FLAG_SYSTEM` |
-| `process.rootAvailable` | `su -c id` answers `uid=0` (probed once per heartbeat, 2 s timeout) |
+| `process.systemApp` | `ApplicationInfo.flags` has `FLAG_SYSTEM`; false on the phone we own (section 14) and kept as a fact about the install, not a requirement |
+| `process.rootAvailable` | `su -c id` answers `uid=0` (probed once per heartbeat, 2 s timeout); false on the phone we own and kept for the same reason |
 | `identity.deviceModel` | `Build.MANUFACTURER + " " + Build.MODEL` |
 | `identity.androidVersion` | `Build.VERSION.RELEASE` |
 | `identity.appVersion` | `BuildConfig.VERSION_NAME` |
 | `identity.clockSkewMs` | from the last HTTP answer (contracts 9.2) |
-| `guard.airplaneModeRestores`, `guard.locationRestores`, `guard.mobileDataRestores`, `guard.batterySaverRestores`, `guard.permissionRestores`, `guard.dozeAllowlistRestores` | `DeviceGuard` counters since the service started (section 5.5) |
-| `guard.lastRestoredItem`, `guard.lastRestoredAt`, `guard.lastError` | `DeviceGuard`: the item names are `airplaneMode`, `location`, `mobileData`, `batterySaver`, `permissions`, `dozeAllowlist`; `lastError` is the text of the last failure line, null until one happens |
+| `guard.wrong`, `guard.wrongSince` | `DeviceGuard` (section 5.5): the names of the items wrong right now, in sweep order (an empty array when all is well), and the rfc3339 time the oldest of them was first seen wrong (null when none) |
+| `guard.lastWrongItem`, `guard.lastWrongAt` | `DeviceGuard`: the latest transition into wrong; the item names are `airplaneMode`, `location`, `mobileData`, `batterySaver`, `permissions`, `dozeAllowlist`; null until one happens |
+| `guard.seenWrong.<item>` | `DeviceGuard`: one integer per item name, the times it was found wrong since the service started |
 | `sentAt` | wall clock at build |
 
 `transport.reconnectCount` is the number of times the socket has reached connected since the service started.
@@ -553,7 +550,7 @@ Offered only when `replayAllowed` (the enrolled `apiBaseUrl` differs from `REDNO
 
 ## 13. First-run checklist
 
-`Checklist` verifies every item from system APIs on every state tick; the Status screen shows red for anything not satisfied. Provisioning (section 14) sets every item from the shell with root, so on a provisioned phone every row is green before enrollment. The rows the device guard owns (the grants, the Doze allowlist, location, airplane mode, mobile data, battery saver; 5.5) turn green again on their own within a sweep; a row that stays red means the guard's root command is failing (its WARN line in the log says why), and the fix path for that and for every other red row is the same: re-run `provision.sh`. Nothing is inferred; a green row means the API said so.
+`Checklist` verifies every item from system APIs on every state tick; the Status screen shows red for anything not satisfied. Provisioning (section 14) sets every item from `adb`, so on a provisioned phone every row is green before enrollment. A red row stays red until a human fixes it: the fix path for every row is the same, re-run the provisioning rows of 14.2 (the operator kit's script), and the device guard (5.5) is what tells the operator remotely that a row went red. Nothing is inferred; a green row means the API said so. Whether the app is a system app or root is available is not on the list: neither is a requirement (section 14), and the heartbeat's `process` group still reports both as facts (section 8).
 
 | Item | Check | Set by |
 |---|---|---|
@@ -563,75 +560,80 @@ Offered only when `replayAllowed` (the enrolled `apiBaseUrl` differs from `REDNO
 | Notifications | `POST_NOTIFICATIONS` granted (33+) and channel not blocked | `pm grant` |
 | Battery optimization exempt | `isIgnoringBatteryOptimizations` | `dumpsys deviceidle whitelist +pkg` |
 | Location services on | `LocationManager.isLocationEnabled` | `settings put secure location_mode 3` |
-| Google Play services | availability `SUCCESS` | the stock image keeps it (section 14.4) |
+| Google Play services | availability `SUCCESS` | the Google apps package flashed with the ROM (section 14.1) |
 | Phone state (signal telemetry) | `READ_PHONE_STATE` granted; optional, telemetry only | `pm grant` |
-| System app | `FLAG_SYSTEM` set | the Magisk module |
-| Root available | `su -c id` answers `uid=0` | Magisk |
-| Airplane mode off | `Settings.Global.AIRPLANE_MODE_ON` is 0 | the guard (5.5) |
-| Mobile data on | `TelephonyManager.isDataEnabled` (fallback `mobile_data<subId>`, 5.5) | the guard (5.5) |
-| Battery saver off | `PowerManager.isPowerSaveMode` is false | the guard (5.5) |
+| Airplane mode off | `Settings.Global.AIRPLANE_MODE_ON` is 0 | quick settings or `adb` (5.5) |
+| Mobile data on | `TelephonyManager.isDataEnabled` (fallback `mobile_data<subId>`, 5.5) | `svc data enable` plus `settings put global mobile_data 1` (14.2) |
+| Battery saver off | `PowerManager.isPowerSaveMode` is false | quick settings or `adb` (5.5) |
 | Service running | `BeaconService.isRunning` | automatic |
 
 ---
 
 ## 14. Device provisioning
 
-The phone is rooted and Red-Nose is a persistent system app. There is no device owner and no DevicePolicyManager; root does the job from the shell at provisioning. Every step is a line in `provisioning/provision.sh`, which is idempotent, runs every command through `su`, and reads each value back so a failed line is visible, never assumed. The Provisioning debug screen (section 10) shows the same state read-only.
+The phone runs a clean Android build with nothing on it that updates itself or kills apps, and Red-Nose is a normal app on it. There is no root, no device owner, and no DevicePolicyManager; `adb` does the job from the shell at provisioning, once, with the phone on a cable. Every step is a row in the operator kit's provisioning script, which is idempotent, runs every command over plain `adb shell`, and reads each value back so a failed row is visible, never assumed. The script lives in the operator kit with the ROM images, the APK, and the runbook of the specific phone, never in this repository (the kit carries the phone's network details, and this repository is public); this section is the design of its rows, and `provisioning/DEVICE.md` is the runbook. The Provisioning debug screen (section 10) shows the same state read-only.
 
-### 14.1 Root and install (once per phone)
+Why no root, decided 2026-10-25. The first phone ran stock Motorola firmware rooted with Magisk: root hid a non-disableable updater, enforced a debloat, and delivered Red-Nose as a `/system/app` through a Magisk module overlay. One boot in Magisk's safe mode skipped the overlays, the platform saw the package as uninstalled and wiped its data, and the enrollment was gone until someone came with a laptop. A custom ROM removes every reason root existed: it has no manufacturer updater and no bloat, its own updater is one disabled package, and a normal app in `/data` cannot vanish from any boot. What root also bought, the device guard switching settings back (5.5), the design gives up: on a mounted phone nobody touches, a wrong setting is a human act, and the guard reports it instead.
 
-1. Factory reset; skip account setup; enable developer options and USB debugging. No Google account is ever added.
-2. Root with Magisk: unlock the bootloader, patch the boot image, flash it, confirm `adb shell su -c id` answers `uid=0(root)`. The device-specific steps are in 14.4 and `provisioning/DEVICE.md`.
-3. Flash the Red-Nose Magisk module (`provisioning/magisk-module/`, built in CI, section 16). It places the signed APK at `/system/app/RedNose/RedNose.apk` and `service.sh` (section 5.3). Reboot.
-4. Confirm the install: `adb shell dumpsys package com.wmsfo.rednose` shows `SYSTEM` and `PERSISTENT` in `flags=[ ... ]` (`persistent=true` on Android 14 and earlier). `provisioning/DEVICE.md` section 12 is the full check.
-5. Run `provision.sh` (14.2), then enroll (section 9).
+### 14.1 The ROM and the install (once per phone)
 
-### 14.2 Provisioning from the shell (`provision.sh`, root)
+1. Unlock the bootloader and flash LineageOS with its official recovery and the Google apps package (MindTheGapps) per the LineageOS wiki for the device: the additional partitions, the recovery, format data, sideload the ROM, sideload the Google apps. The device-specific gotchas are in 14.4 and `provisioning/DEVICE.md`.
+2. First boot needs hands: skip the whole setup wizard (no Google account is ever added, Wi-Fi can be skipped), enable developer options, USB debugging, and rooted debugging (it gives `adb root` to the operator on a cable, never root to an app, and the provisioning script needs it for one row), accept the USB debugging dialog from the provisioning host.
+3. Run the operator kit's provisioning script (14.2) with the CI APK next to it. It installs Red-Nose with `adb install -r -g` and asserts the package is not a system app.
+4. Confirm the install: `adb shell dumpsys package com.wmsfo.rednose` shows `flags=[ HAS_CODE ... ]` with neither `SYSTEM` nor `PERSISTENT`. `provisioning/DEVICE.md` section 8 is the full check.
+5. Enroll (section 9).
 
-| Concern | Command (as root) |
+### 14.2 Provisioning rows (the operator kit's script, plain `adb shell`)
+
+| Concern | Command |
 |---|---|
+| Setup wizard | `settings put secure user_setup_complete 1`, `settings put global device_provisioned 1`, `pm disable-user --user 0` on the ROM's and Google's setup wizard packages, so a reboot never lands in a wizard |
+| No self-updates | `pm disable-user --user 0` on the ROM's updater package; `settings put global package_verifier_user_consent -1` so a sideload never waits on a Play Protect prompt |
+| Google Play services present | `pm path com.google.android.gms` is non-empty (the fused provider and the code scanner, section 9.1) |
+| Install | `adb install -r -g <apk>`; then `dumpsys package` must show no `SYSTEM` flag (a system app would be subject to the overlay failure above) |
 | Runtime permissions | `pm grant com.wmsfo.rednose <perm>` for `ACCESS_FINE_LOCATION`, `ACCESS_COARSE_LOCATION`, `ACCESS_BACKGROUND_LOCATION`, `POST_NOTIFICATIONS`, `READ_PHONE_STATE` (no CAMERA: the QR path uses the Play services code scanner, section 9.1) |
 | Location appops | `appops set com.wmsfo.rednose FINE_LOCATION allow` and `appops set com.wmsfo.rednose COARSE_LOCATION allow`, so the grant is not downgraded to coarse or foreground-only |
 | Battery / Doze | `dumpsys deviceidle whitelist +com.wmsfo.rednose` |
 | Location mode | `settings put secure location_mode 3` |
 | Stay awake while charging | `settings put global stay_on_while_plugged_in 7` |
-| Launcher | none; the stock launcher stays the home screen and Red-Nose is an ordinary app in the app drawer |
-| Screen lock | none set by provisioning; never a PIN, pattern, or password (5.5: the enrollment is in credential-encrypted storage, unreadable before the first unlock after a boot) |
-| Root for the app | `magisk --sqlite "REPLACE INTO policies ..."` with the app uid and policy 2 (allow), so the guard's root commands (5.5) and the checklist's `su -c id` probe never show a Magisk prompt |
 | Permission auto-revoke | `appops set com.wmsfo.rednose AUTO_REVOKE_PERMISSIONS_IF_UNUSED ignore`, so the platform never removes the grants of an app nobody opens |
-| No safe boot | `settings put global safe_boot_disallowed 1` |
-| No uninstall | inherent to a `/system/app` package; the user can only disable it in Settings, which is accepted (5.5) |
-| OTA | blocked by the patched boot image: an OTA fails verification against the modified boot partition and the system stays as flashed. Updater packages are left alone (some are non-disableable on this phone) |
+| Keyguard | `locksettings set-disabled true`: no lock screen at all, so the credential-encrypted store is readable from the first boot (5.5) and nothing needs a swipe |
+| Mobile data | `svc data enable` and `settings put global mobile_data 1`. `svc` writes the per-subscription key only; the plain key is what the read falls back to when `READ_PHONE_STATE` is not yet granted, and the checklist stays red until both are set |
+| No safe boot | `settings put global safe_boot_disallowed 1`: Android safe mode disables every non-system app (5.3) |
+| Launcher | none; the ROM's launcher stays the home screen and Red-Nose is an ordinary app in the app drawer |
+| Wi-Fi | `cmd wifi connect-network <ssid> wpa2 <psk>` with the credentials from a file next to the script that is never committed anywhere; the field transport is mobile data, Wi-Fi is for the bench |
+| Wireless adb | `adb root`, then `setprop persist.adb.tcp.port 5555` (survives reboots), then `adb unroot`; the only row that needs rooted debugging |
+| No uninstall | nothing stops `adb uninstall` or Settings on an unlocked phone; accepted (5.3) |
 
-What root does not buy and the design accepts: the bootloader stays unlocked (a Magisk-patched boot image cannot pass verified boot with the bootloader locked, so relocking bricks or boot-loops), which means a fastboot wipe is one cable away; Settings stays reachable, so a factory reset, disabling the app, or setting a PIN stays possible. None of them happens by accident on a phone mounted in the aircraft, and everything a casual change can break (airplane mode, location, mobile data, battery saver, the grants, the Doze allowlist) the guard switches back (5.5). There is no kiosk, no screen pinning, and no lock task.
+What the design accepts: the bootloader stays unlocked (a custom ROM needs it, and the warning on every boot is cosmetic), so a fastboot wipe is one cable away; Settings stays reachable, so a factory reset, disabling the app, or setting a PIN stays possible. None of them happens by accident on a phone mounted in the aircraft. Whatever a casual change can break (airplane mode, location, mobile data, battery saver, the grants, the Doze allowlist) the guard reports (5.5) and a human puts back. There is no kiosk, no screen pinning, and no lock task.
 
-### 14.3 The Magisk module
+### 14.3 Updating Red-Nose
 
-`provisioning/magisk-module/` is a standard Magisk module: `module.prop`, `customize.sh`, a `system/app/RedNose/` tree carrying the APK, and `service.sh`. Red-Nose requests only normal and runtime permissions, so it does not need `/system/priv-app` and carries no privileged-permission allowlist; `android:persistent="true"` is honoured for any system app. Updating Red-Nose is a module reflash and reboot (section 16), never a `pm install`.
+An update is `adb install -r -g <new apk>` from any machine with `adb` (the cable, or wireless adb on the bench network), then the provisioning script again with its install step skipped so every row is read back. No reboot. The enrollment and every setting survive: the app is a normal package, and `-r` replaces the code in place. Never `pm clear` the package (it drops the enrollment, which is Keystore-bound and cannot be restored from a copy, 9.3) and never `adb uninstall` it for an update.
 
-Every build carries the same `versionCode` (section 15), and the package manager caches its parse of a system APK, so a reflash on its own keeps the previous manifest and only swaps the code: new activities, services and content providers do not exist until the cache is dropped. `customize.sh` therefore clears `/data/system/package_cache` at install; the next boot re-parses the APK.
+Only CI builds go on the phone. The installed package is signed with the flavour's release key (section 15); `adb install -r` refuses an APK with a different signature, and uninstalling to switch signatures loses the enrollment. A locally built APK (debug keystore) therefore never replaces a CI build; it goes on an emulator or a spare phone.
 
 ### 14.4 The phone we own
 
-The beacon phone is a Moto G 5G (2024), Motorola codename `fogo`, model XT2417-1, Android 15, kept on stock firmware (debloated, not a custom ROM) so Google Play services, the fused provider, and the modem stay exactly as shipped. `provisioning/DEVICE.md` is the runbook; the parts that cost time to learn:
+The beacon phone is a Moto G 5G (2024), Motorola codename `fogo`, model XT2417-1, on official LineageOS 24.0 (Android 17) with MindTheGapps for Google Play services, no Magisk, Red-Nose installed as a normal app. `provisioning/DEVICE.md` is the runbook; the parts that cost time to learn:
 
-- This unit has no `init_boot` partition; the ramdisk is in `boot.img`. Patch and flash `boot`, not `init_boot`.
-- Patch the boot image on the phone (push the Magisk binaries and `boot_patch.sh`, run the patch under `su` on the device, pull `new-boot.img`). A headless patch on a Linux box boots but never activates Magisk, because `magiskinit` needs the pre-init device resolved on the phone.
-- Mirrors carry firmware for an older build than the phone runs; its `boot.img` boots fine on the newer system with the bootloader unlocked. The exact stock `super.img` is not downloadable anywhere, so it was dumped through root and kept.
 - Run `fastboot` from a Linux machine. Windows `fastboot.exe` on an Intel xHCI-only host never sees the device over USB 3, while `adb` works. Use a real USB data cable; a charge-only cable enumerates nothing.
-- `super` cannot be flashed from the bootloader ("Unsupported super image format"); it goes through fastbootd (`fastboot reboot fastboot`, then `fastboot flash super`).
-- A restore kit (stock and patched `boot.img`, `super.img`, `dtbo`, `vbmeta`, the debloat list, the Magisk APK, `restore.sh`) lives off the phone and was proven end to end: root deliberately broken, full restore run, phone back rooted with the debloat intact. Before any OTA or firmware change, flash `boot_stock.img` first.
-- Magisk's `su` lives under `/product/bin`; set Superuser access to "Apps and ADB" and grant the Shell request once so `adb shell su` works for `provision.sh`.
-- Debloat is `pm uninstall --user 0` per package from a saved list, reversible with `pm install-existing`. Dialer, telephony, APN, Play services, Play Store, launcher, camera, and Magisk stay.
+- The LineageOS recovery's `adb` trusts only hosts the previous system had authorized, so "Format data" and "Apply from ADB" are taps on the phone; `adb sideload` itself needs no authorization. The ROM sideload may never print its final transfer line on the host; the phone's screen is the truth. The Google apps sideload reports a signature verification failure and asks to install anyway: yes (they are signed by their own project; their checksum was checked on download).
+- Every new `adb` host, wired or wireless, gets the "Allow USB debugging" dialog once; nobody is there to tap it on a mounted phone, so authorize every host on the bench.
+- The ROM has no manufacturer updater; its own updater package is disabled at provisioning, and nothing else on the phone installs anything. Google Play services' "theft protection" notification is harmless.
+- Mobile data: `svc data enable` alone leaves the checklist red on this ROM; the plain `mobile_data` key must be set too (14.2).
+- GPS fixes arrive at 1 Hz whatever rate the app asks for (Qualcomm GNSS HAL, 6.1); the first fix after a wipe is a cold start and takes minutes.
+- Never write to the kernel's adaptive charge control (`qpnp_adaptive_charge`); it once latched USB input off.
+- Stock restore kits (stock `boot`, `super`, `dtbo`, `vbmeta`, plus a stock `vendor_boot` to undo the ROM's) live in the operator kit and were proven end to end on the stock firmware; LineageOS put `dtbo` and `vendor_boot` in place, so a return to stock flashes those too.
 
 ---
 
 ## 15. Build, flavours, versioning
 
 - Flavours `dev` and `prod` differ only in `BuildConfig` fields (contracts 8.5: `REDNOSE_DEFAULT_API_BASE_URL`, `REDNOSE_PROD_API_BASE_URL`, the intervals, backoff, ring size) and the network security config (dev allows cleartext). Same application id, so a phone holds one flavour at a time.
-- The manifest sets `android:persistent="true"` and requests only normal and runtime permissions, never a signature or privileged one, so the package stays a plain `/system/app` install with no allowlist (section 14.3).
+- The manifest requests only normal and runtime permissions, never a signature or privileged one, and does not set `android:persistent` (section 5.3), so the package is a plain install on any Android build.
 - `VERSION` holds the semantic version; the Gradle build reads it into `versionName` and derives `versionCode` from it (`major * 10000 + minor * 100 + patch`).
-- Release builds are signed by CI with a release key per flavour, one for dev and one for prod, that never lives in the repository. The master copy of each keystore (PKCS12, with its alias and passwords) is a secret in the operator's secrets manager; a copy sits in the GitHub environment of its flavour (`dev` admits the `dev` branch, `prod` admits `main`) as `REDNOSE_KEYSTORE_B64`, `REDNOSE_KEYSTORE_PASSWORD`, `REDNOSE_KEY_ALIAS`, and `REDNOSE_KEY_PASSWORD`. The workflow writes the keystore to the runner's temporary directory, hands Gradle its path in `REDNOSE_KEYSTORE_FILE`, and removes it when the job ends. A local release build has none of those variables and falls back to the checked-in debug keystore, so a locally built APK cannot replace a CI build on the phone without uninstalling the module first; the same holds between the dev and prod flavours' keys. Losing a key costs one re-provisioning, nothing more: there is no store listing tied to it.
+- Release builds are signed by CI with a release key per flavour, one for dev and one for prod, that never lives in the repository. The master copy of each keystore (PKCS12, with its alias and passwords) is a secret in the operator's secrets manager; a copy sits in the GitHub environment of its flavour (`dev` admits the `dev` branch, `prod` admits `main`) as `REDNOSE_KEYSTORE_B64`, `REDNOSE_KEYSTORE_PASSWORD`, `REDNOSE_KEY_ALIAS`, and `REDNOSE_KEY_PASSWORD`. The workflow writes the keystore to the runner's temporary directory, hands Gradle its path in `REDNOSE_KEYSTORE_FILE`, and removes it when the job ends. A local release build has none of those variables and falls back to the checked-in debug keystore, so a locally built APK cannot replace a CI build on the phone without uninstalling first, which loses the enrollment (14.3); the same holds between the dev and prod flavours' keys. Losing a key costs one uninstall, reinstall, and enrollment, nothing more: there is no store listing tied to it.
 - Local builds: README.md has the exact commands. Build the phone's ABI only (`-PreactNativeArchitectures=arm64-v8a`); on Windows enable long paths or clone to a short path, or the native build of a dependency loops forever on a 260-character path.
 - `CONTRACTS_SHA` names the API commit whose `contracts/` is vendored; the JS tests validate the fix and heartbeat bodies against those schemas.
 
@@ -639,7 +641,7 @@ The beacon phone is a Moto G 5G (2024), Motorola codename `fogo`, model XT2417-1
 
 ## 16. Branch flow and CI
 
-`dev` and `main`. `.github/workflows/android.yml` on every push to `dev` or `main` (not `grunt`, whose content reaches `dev` anyway), on the self-hosted runner `nimbus` (the operator's Linux build box, registered to this repository as a systemd service; persistent Gradle and npm caches). The repository is public, so the runner is guarded three ways: the workflow has no `pull_request` trigger (pushes to `dev` and `main` and a manual run only, which need write access; a fork's own pushes run in the fork, which has no runner), the repository setting that holds workflows from outside contributors for approval is at its strictest, and the signing keys sit in environments that admit their own branch only. The workflow still runs unchanged on a GitHub-hosted runner if `runs-on` is switched back: JS unit tests, `./gradlew :app:testDevDebugUnitTest`, then `assembleDevRelease` on `dev` and `assembleProdRelease` on `main`, signed, arm64-v8a only (the beacon phone's ABI, section 14.4; other ABIs build locally only). CI then packages the signed APK into the Magisk module (`provisioning/magisk-module/` plus the APK) and uploads two artifacts, `red-nose-<flavour>-<version>-<sha>.apk` and `red-nose-<flavour>-<version>-<sha>.magisk.zip`. No store, no auto-update; the phone is updated by flashing the new module zip and rebooting.
+`dev` and `main`. `.github/workflows/android.yml` on every push to `dev` or `main` (not `grunt`, whose content reaches `dev` anyway), on the self-hosted runner `nimbus` (the operator's Linux build box, registered to this repository as a systemd service; persistent Gradle and npm caches). The repository is public, so the runner is guarded three ways: the workflow has no `pull_request` trigger (pushes to `dev` and `main` and a manual run only, which need write access; a fork's own pushes run in the fork, which has no runner), the repository setting that holds workflows from outside contributors for approval is at its strictest, and the signing keys sit in environments that admit their own branch only. The workflow still runs unchanged on a GitHub-hosted runner if `runs-on` is switched back: JS unit tests, `./gradlew :app:testDevDebugUnitTest`, then `assembleDevRelease` on `dev` and `assembleProdRelease` on `main`, signed, arm64-v8a only (the beacon phone's ABI, section 14.4; other ABIs build locally only). CI uploads one artifact, `red-nose-<flavour>-<version>-<sha>.apk`. No store, no auto-update; the phone is updated with `adb install -r -g` (14.3).
 
 ---
 
@@ -651,11 +653,12 @@ Runs on the real device against the dev API for at least 30 days before December
 |---|---|
 | Unattended, charging | heartbeat gap never exceeds 60 s over the whole soak; `serviceRestartCount` stays 0 between reboots |
 | Reboot | first heartbeat within 120 s of boot without touching the phone |
-| Airplane mode switched on from quick settings | off again within 5 s, `guard restored airplaneMode` in the log, `debug.guard.airplaneModeRestores` up by one, first delivered fix within 15 s of the network returning |
-| Kill from recents, `adb shell am force-stop` | service back within 60 s (persistent-app restart, or the `service.sh` root script) |
-| `kill -9` of the `:beacon` pid only, as root | service back within 15 s; the log records whether the platform or the `service.sh` script restarted it (section 5.3) |
-| Location switched off; battery saver switched on; mobile data switched off (each from quick settings, one at a time) | each back in its needed state within 5 s, with its log line and counter |
-| Location permission set to "Don't allow" in Settings, app info | the processes restart (watchdog, within 15 s), the grant is back within 5 s of the restart, fixes are delivered again, `debug.guard.permissionRestores` up by one |
+| Airplane mode switched on from quick settings, switched off again after a minute | `guard wrong airplaneMode` in the log within 5 s and `debug.guard.wrong` carrying `airplaneMode` in the first heartbeat after the network returns; `guard ok airplaneMode` once it is off; first delivered fix within 15 s of the network returning |
+| Kill from recents | the UI process dies, the `:beacon` process does not; heartbeats continue |
+| `adb shell am force-stop com.wmsfo.rednose`, then reboot | the service stays down until the reboot (accepted, 5.3) and is back within 120 s of boot |
+| `kill -9` of the `:beacon` pid from `adb root` (rooted debugging on the bench) | service back within 60 s through `START_STICKY`; `serviceRestartCount` up by one |
+| Location switched off; battery saver switched on; mobile data switched off (each from quick settings, one at a time, switched back after a minute) | each reported wrong within 5 s with its WARN line, its `seenWrong` count up by one, and `debug.guard.wrong` naming it in the next heartbeat; the INFO line and an empty `wrong` once it is back |
+| Location permission set to "Don't allow" in Settings, app info, then `pm grant` over `adb` | the processes restart within 60 s, the creation sweep reports `permissions` wrong, fixes are delivered again within 5 s of the grant without a reboot |
 | Use the phone for other apps (browser, maps, camera) for 10 min, then lock it | Red-Nose never takes the screen; heartbeats and fixes continue throughout |
 | Cellular only, driving 1 h at highway speed | fixes delivered at the provider's rate (up to 4 Hz) with gaps only where the carrier has none; socket reconnects logged, HTTP fallback covering them at most once per second |
 | Battery to 10 percent unplugged, then charged | no change in behaviour; battery telemetry correct |
@@ -668,23 +671,23 @@ Every drill is logged in the repository under `docs/soak/<date>.md` with the obs
 ## 18. Decisions made here
 
 - The service runs in its own process and communicates with the UI over AIDL only; the UI never holds the key after enrollment.
-- The phone is rooted (Magisk) and Red-Nose is a persistent system app under `/system/app`; that is the baseline for process survival, permission granting, and restoring what the beacon needs, not a post-soak fallback. It requests no privileged permission, so there is no `/system/priv-app` install and no allowlist.
-- Device owner mode and DevicePolicyManager are not used; permissions, settings, safe boot, and OTA blocking are done from the shell with root at provisioning (section 14), and the service restores what the beacon needs with root at runtime (5.5).
-- Process survival is the platform's plus root's: the persistent system app and `START_STICKY`, with the Magisk `service.sh` root script as the guarantee; there is no WorkManager worker and no exact alarm.
+- No root and no system app (2026-10-25): the phone runs a clean Android build (LineageOS) with Google Play services, and Red-Nose is a normal app installed over `adb` whose data lives in `/data`. The rooted, Magisk-module, persistent-system-app design that preceded it lost the enrollment to one safe-mode boot (section 14); the custom ROM removes every reason root existed. It requests no privileged permission, so there is no `/system/priv-app` install and no allowlist, and `android:persistent` is gone from the manifest.
+- Device owner mode and DevicePolicyManager are not used; permissions, settings, safe boot, and the updater are set from the shell over `adb` at provisioning (section 14), and the service reports what the beacon needs at runtime instead of restoring it (5.5).
+- Process survival is the platform's: a foreground service on the Doze allowlist, `START_STICKY`, and the boot receiver; there is no WorkManager worker, no exact alarm, and no root script.
 - The app never requests a permission and never opens a settings screen; provisioning grants everything and the checklist only reports.
-- No kiosk (2026-09-16): the phone stays usable for other apps; Red-Nose is not the launcher, does not hide the bars, and provisioning leaves the lock screen alone. The service's device guard switches back on whatever the beacon needs when someone switches it off (5.5), with no pause and no override. The bootloader stays unlocked and a factory reset from Settings stays possible; both are accepted.
-- OTA is blocked by the patched boot image, not by disabling updater packages (some cannot be disabled).
+- No kiosk (2026-09-16): the phone stays usable for other apps; Red-Nose is not the launcher and does not hide the bars. The service's device guard watches whatever the beacon needs and reports it in the log and the heartbeat when someone switches it off (5.5), with no pause and no override. The bootloader stays unlocked and a factory reset from Settings stays possible; both are accepted.
+- Updates to the OS are prevented by disabling the ROM's updater package at provisioning; there is no manufacturer updater to fight.
 - Fused provider is the default source (`REDNOSE_FIX_INTERVAL_MS = 250`, so the location request asks for a fix every 250 ms; the delivered rate is whatever the chip gives, up to 4 Hz); GPS-only is a toggle, never automatic.
 - A partial wake lock for the life of the service.
 - `READ_PHONE_STATE` is requested for signal telemetry and is optional.
 - Replay stops at the end of the route (no loop).
 - Heartbeats are HTTP only; the socket carries locations only.
 - Enrollment happens after provisioning (section 14.1 order); the in-app scanner is the enrollment path, and the system camera can open a `rednose://enroll` link as well.
-- The heartbeat telemetry `process` group carries `systemApp` and `rootAvailable` in place of `deviceOwnerMode` (section 8, contracts 4.2).
+- The heartbeat telemetry `process` group carries `systemApp` and `rootAvailable` in place of `deviceOwnerMode` (section 8, contracts 4.2); both are facts about the install and read false on the phone we own. They are not checklist rows.
 - The API knows Red-Nose only as a key: debug mode is always available on the phone; the heartbeat's typed `health` core is filled from the phone's own probes and everything else rides in `debug` for the panel to show verbatim (section 8).
 - Hub invocations use the Java client's `Completable` overload and pass the payload as an object (7.4).
 - QR scanning is the Google Play services code scanner (`play-services-code-scanner`, a full-screen system activity behind `NativeRedNose.scanQrCode`, section 9.1): the phone keeps GMS, the app never opens the camera, no CAMERA permission is declared or granted, and `MainActivity.onCreate` warms the scanner module through `ModuleInstallClient`. `react-native-vision-camera` was removed with `react-native-nitro-image` and `react-native-nitro-modules`; vision-camera 5 has no Android code scanner, and vision-camera 4 or an ML Kit frame-processor would each mean a camera pipeline the app does not need.
 
 ## 19. Needs a decision
 
-Nothing is open.
+- Remote management of the mounted phone: installing a build and reading logs from anywhere, without a person on site. Nothing in the app depends on the answer; the candidate is a mesh VPN on the phone with `adb` over it, decided outside this document.

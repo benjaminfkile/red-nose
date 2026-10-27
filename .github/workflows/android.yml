@@ -95,33 +95,14 @@ jobs:
             echo "no APK produced under android/app/build/outputs/apk/$flavour/release" >&2
             exit 1
           fi
-          echo "path=$apk" >>"$GITHUB_OUTPUT"
-      - name: Package Magisk module
-        id: module
-        run: |
-          flavour="${{ steps.assemble.outputs.flavour }}"
+          # The artifact is the deliverable (docs/red-nose.md 14.3, 16): it goes on
+          # the phone with `adb install -r -g`. Name it after the flavour, version, and commit.
           version="$(cat VERSION)"
-          apk="${{ steps.apk.outputs.path }}"
-          stage="$(mktemp -d)"
-          cp -R provisioning/magisk-module/. "$stage"/
-          mkdir -p "$stage/system/app/RedNose"
-          # Drop the placeholder .gitkeep from the packaged zip and land the signed APK.
-          rm -f "$stage/system/app/RedNose/.gitkeep"
-          cp "$apk" "$stage/system/app/RedNose/RedNose.apk"
-          out="$PWD/red-nose-${flavour}-${version}-${GITHUB_SHA}.magisk.zip"
-          (cd "$stage" && zip -r "$out" .)
-          echo "path=$out" >>"$GITHUB_OUTPUT"
-          # Rename the APK to match the module zip's naming scheme.
           apk_out="$PWD/red-nose-${flavour}-${version}-${GITHUB_SHA}.apk"
           cp "$apk" "$apk_out"
-          echo "apk_out=$apk_out" >>"$GITHUB_OUTPUT"
+          echo "path=$apk_out" >>"$GITHUB_OUTPUT"
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
           name: red-nose-${{ steps.assemble.outputs.flavour }}-${{ github.ref_name }}-${{ github.sha }}-apk
-          path: ${{ steps.module.outputs.apk_out }}
-      - name: Upload Magisk module
-        uses: actions/upload-artifact@v4
-        with:
-          name: red-nose-${{ steps.assemble.outputs.flavour }}-${{ github.ref_name }}-${{ github.sha }}-magisk
-          path: ${{ steps.module.outputs.path }}
+          path: ${{ steps.apk.outputs.path }}
