@@ -14,7 +14,6 @@ import com.wmsfo.rednose.BuildConfig
 import com.wmsfo.rednose.checklist.ChecklistProbe
 import com.wmsfo.rednose.guard.AndroidDeviceState
 import com.wmsfo.rednose.guard.DeviceGuard
-import com.wmsfo.rednose.guard.SuRootShell
 import com.wmsfo.rednose.ipc.IBeaconListener
 import com.wmsfo.rednose.ipc.IBeaconService
 import com.wmsfo.rednose.location.FixSource
@@ -125,8 +124,9 @@ class BeaconService : Service(), SendLoop.State, HeartbeatLoop.State {
         locationHandlerThread = HandlerThread("beacon-loc").also { it.start() }
         locationHandler = Handler(locationHandlerThread.looper)
         gnss = GnssStats(this, locationHandler)
-        // A revoked location grant makes this throw; the guard regrants and
-        // onPermissionsRestored starts it again (red-nose.md 5.5).
+        // A revoked location grant makes this throw; once a human grants it
+        // again, the guard sees the permissions item back and onPermissionsBack
+        // starts it again (red-nose.md 5.5).
         try { gnss.start() } catch (t: SecurityException) {
             ring.warn("gnss start failed err=${t.javaClass.simpleName}:${t.message}")
         }
@@ -134,12 +134,10 @@ class BeaconService : Service(), SendLoop.State, HeartbeatLoop.State {
         checklist = ChecklistProbe(this)
         listeners = RemoteCallbackList<IBeaconListener>()
         guard = DeviceGuard(
-            packageName = packageName,
             state = AndroidDeviceState(this),
-            shell = SuRootShell(),
             log = ring,
             sweepMs = BuildConfig.REDNOSE_GUARD_SWEEP_MS.toLong(),
-            onPermissionsRestored = ::onPermissionsRestored,
+            onPermissionsBack = ::onPermissionsBack,
         )
         telemetry = TelemetryCollector(
             context = this,
@@ -158,8 +156,10 @@ class BeaconService : Service(), SendLoop.State, HeartbeatLoop.State {
         }
         // Register the guard's observers so a settings change wakes a sweep.
         guard.start(this)
-        // The stored enrollment start awaits the creation sweep so the fix
-        // source only starts once the location grants are back (red-nose.md 5.5).
+        // The stored enrollment start awaits the creation sweep, so a missing
+        // location grant is already reported when the fix source starts; a
+        // source that cannot start stays pending until the grant is back
+        // (red-nose.md 5.5).
         scope.launch {
             guard.sweepOnce()
             store.load()?.let { onEnrollmentAvailable(it) }
@@ -178,7 +178,7 @@ class BeaconService : Service(), SendLoop.State, HeartbeatLoop.State {
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         // Every start reaches us through startForegroundService (BootReceiver, saveEnrollment,
-        // the service.sh watchdog), so the foreground contract must be met on every start,
+        // the platform's START_STICKY recreate), so the foreground contract must be met on every start,
         // enrolled or not; otherwise the platform kills the process a few seconds later.
         if (!startedForeground) startForegroundNow()
         return START_STICKY
@@ -249,8 +249,8 @@ class BeaconService : Service(), SendLoop.State, HeartbeatLoop.State {
         try {
             src.start()
         } catch (t: SecurityException) {
-            // Keep the source as the pending one; onPermissionsRestored will
-            // call startFixSource again after the guard regrants (5.5).
+            // Keep the source as the pending one; onPermissionsBack calls
+            // startFixSource again when the guard sees the grants back (5.5).
             ring.warn("fix source start failed err=${t.javaClass.simpleName}:${t.message}")
         }
         scope.launch {
@@ -262,11 +262,12 @@ class BeaconService : Service(), SendLoop.State, HeartbeatLoop.State {
         }
     }
 
-    // Runs on the beacon dispatcher after DeviceGuard restores the permissions
-    // (red-nose.md 5.5): restart the GnssStats callback (fine location was
-    // revoked with the app), and, when an enrollment exists and no replay is
-    // running, start the fix source again.
-    private fun onPermissionsRestored() {
+    // Called by DeviceGuard when a sweep finds the permissions item right again
+    // after it was wrong (someone re-ran the permission rows over adb,
+    // red-nose.md 5.5).  On the beacon dispatcher: restart the GnssStats
+    // callback (fine location was revoked with the app), and, when an
+    // enrollment exists and no replay is running, start the fix source again.
+    private fun onPermissionsBack() {
         scope.launch {
             try { gnss.stop() } catch (_: Throwable) {}
             try { gnss.start() } catch (t: SecurityException) {

@@ -1,6 +1,7 @@
 // Provisioning debug screen (red-nose.md 10, 14): read-only verification of the
-// system-app, root, launcher, and settings state.  Provisioning itself is done
-// from the shell (`provision.sh`), not from buttons here.
+// checklist rows and the settings state; systemApp and rootAvailable are shown
+// as telemetry facts about the install.  Provisioning itself is done over adb
+// with the operator kit's provisioning script, not from buttons here.
 
 import React from 'react';
 import { ScrollView, StyleSheet, Text, View } from 'react-native';
@@ -17,8 +18,6 @@ const ROWS: Row[] = [
   { key: 'locationServicesOn', label: 'Location services on' },
   { key: 'playServices', label: 'Google Play services' },
   { key: 'phoneState', label: 'Phone state' },
-  { key: 'systemApp', label: 'System app' },
-  { key: 'rootAvailable', label: 'Root available' },
   { key: 'airplaneModeOff', label: 'Airplane mode off' },
   { key: 'mobileDataOn', label: 'Mobile data on' },
   { key: 'batterySaverOff', label: 'Battery saver off' },
@@ -31,7 +30,7 @@ export function ProvisioningScreen(props: { state: ServiceState }) {
   return (
     <ScrollView contentContainerStyle={styles.root}>
       <Text style={styles.title}>provisioning (read-only)</Text>
-      <Text style={styles.hint}>Re-run provision.sh from the shell to fix any red row.</Text>
+      <Text style={styles.hint}>Re-run the operator kit's provisioning script to fix any red row (DEVICE.md 5).</Text>
 
       <View style={styles.card}>
         {ROWS.map(r => {

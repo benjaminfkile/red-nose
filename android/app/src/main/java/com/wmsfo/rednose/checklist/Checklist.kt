@@ -3,7 +3,6 @@ package com.wmsfo.rednose.checklist
 import android.Manifest
 import android.app.NotificationManager
 import android.content.Context
-import android.content.pm.ApplicationInfo
 import android.content.pm.PackageManager
 import android.location.LocationManager
 import android.os.PowerManager
@@ -13,28 +12,15 @@ import com.google.android.gms.common.GoogleApiAvailability
 import com.wmsfo.rednose.guard.MobileData
 import com.wmsfo.rednose.service.BeaconService
 import com.wmsfo.rednose.service.Checklist
-import java.util.concurrent.Executors
-import java.util.concurrent.TimeUnit
-import java.util.concurrent.atomic.AtomicBoolean
-import java.util.concurrent.atomic.AtomicReference
 
 // Evaluates every row of red-nose.md section 13 from system APIs (contract:
 // "the checklist reads every row from a system API, nothing inferred").  A
-// green row means the API said so.  The su -c id probe runs on a background
-// thread so the beacon dispatcher never blocks (red-nose.md 7.1) and read()
-// returns the cached answer.
-class ChecklistProbe(
-    private val context: Context,
-    private val rootProbeTimeoutMs: Long = 2000L,
-) {
-    private val rootCache: AtomicReference<Boolean?> = AtomicReference(null)
-    private val rootProbeInFlight = AtomicBoolean(false)
-    private val rootExecutor = Executors.newSingleThreadExecutor { r ->
-        Thread(r, "rednose-checklist-root").apply { isDaemon = true }
-    }
+// green row means the API said so.  A red row is fixed by re-running the
+// provisioning rows over adb; whether the app is a system app or root is
+// available is not a row (neither is a requirement, red-nose.md 13).
+class ChecklistProbe(private val context: Context) {
 
     fun read(): Checklist {
-        kickRootProbe()
         return Checklist(
             fineLocation = granted(Manifest.permission.ACCESS_FINE_LOCATION),
             backgroundLocation = granted(Manifest.permission.ACCESS_BACKGROUND_LOCATION),
@@ -44,8 +30,6 @@ class ChecklistProbe(
             locationServicesOn = locationServicesOn(),
             playServices = playServicesAvailable(),
             phoneState = granted(Manifest.permission.READ_PHONE_STATE),
-            systemApp = systemApp(),
-            rootAvailable = rootCache.get() == true,
             airplaneModeOff = airplaneModeOff(),
             mobileDataOn = mobileDataOn(),
             batterySaverOff = batterySaverOff(),
@@ -89,9 +73,6 @@ class ChecklistProbe(
     private fun playServicesAvailable(): Boolean =
         GoogleApiAvailability.getInstance().isGooglePlayServicesAvailable(context) == ConnectionResult.SUCCESS
 
-    private fun systemApp(): Boolean =
-        (context.applicationInfo.flags and ApplicationInfo.FLAG_SYSTEM) != 0
-
     private fun airplaneModeOff(): Boolean = try {
         Settings.Global.getInt(context.contentResolver, Settings.Global.AIRPLANE_MODE_ON, 0) == 0
     } catch (_: Throwable) { false }
@@ -101,22 +82,5 @@ class ChecklistProbe(
     private fun batterySaverOff(): Boolean {
         val pm = context.getSystemService(Context.POWER_SERVICE) as PowerManager
         return !pm.isPowerSaveMode
-    }
-
-    private fun kickRootProbe() {
-        if (!rootProbeInFlight.compareAndSet(false, true)) return
-        rootExecutor.submit {
-            try {
-                val process = ProcessBuilder("su", "-c", "id").redirectErrorStream(true).start()
-                val done = process.waitFor(rootProbeTimeoutMs, TimeUnit.MILLISECONDS)
-                val ok = if (!done) { process.destroy(); false }
-                else process.inputStream.bufferedReader().readText().contains("uid=0")
-                rootCache.set(ok)
-            } catch (_: Throwable) {
-                rootCache.set(false)
-            } finally {
-                rootProbeInFlight.set(false)
-            }
-        }
     }
 }

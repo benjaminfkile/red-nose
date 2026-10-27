@@ -1,6 +1,6 @@
 // Renders any red rows from the ServiceState.checklist (red-nose.md 13).
 // Nothing is inferred; the values come from the service's system-API probes.
-// Any red row means re-run provision.sh (14.2).
+// Any red row means re-run provisioning (red-nose.md 13).
 
 import React from 'react';
 import { StyleSheet, Text, View } from 'react-native';
@@ -21,8 +21,6 @@ const ROWS: Row[] = [
   { key: 'locationServicesOn', label: 'Location services on' },
   { key: 'playServices', label: 'Google Play services' },
   { key: 'phoneState', label: 'Phone state' },
-  { key: 'systemApp', label: 'System app' },
-  { key: 'rootAvailable', label: 'Root available' },
   { key: 'airplaneModeOff', label: 'Airplane mode off' },
   { key: 'mobileDataOn', label: 'Mobile data on' },
   { key: 'batterySaverOff', label: 'Battery saver off' },
@@ -41,7 +39,7 @@ export function ChecklistCard(props: ChecklistCardProps) {
           {r.label}
         </Text>
       ))}
-      <Text style={styles.hint}>re-run provision.sh</Text>
+      <Text style={styles.hint}>re-run provisioning (DEVICE.md 5)</Text>
     </View>
   );
 }

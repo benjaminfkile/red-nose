@@ -8,9 +8,10 @@ import android.os.Build
 import android.os.PowerManager
 import android.provider.Settings
 
-// The read side of red-nose.md 5.5.  Every method calls the API exactly as the
-// 5.5 table names it; DeviceGuard walks the items in order and decides whether
-// to run the restore command.
+// The read side of red-nose.md 5.5, and the only side: the guard reads and
+// reports, it never switches anything.  Every method calls the API exactly as
+// the 5.5 table names it; DeviceGuard walks the items in order and records
+// each change between right and wrong.
 interface DeviceState {
     fun airplaneModeOn(): Boolean
     fun locationEnabled(): Boolean

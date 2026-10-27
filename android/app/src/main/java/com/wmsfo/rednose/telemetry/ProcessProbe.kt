@@ -14,7 +14,10 @@ import java.util.concurrent.atomic.AtomicReference
 
 // Process/system probes: uptimes, memory pressure, battery-optimization exemption,
 // notification permission, systemApp and rootAvailable
-// (red-nose.md 8 and 18; contracts 4.2 process group).
+// (red-nose.md 8 and 18; contracts 4.2 process group).  systemApp and
+// rootAvailable are facts about the install, not requirements: both are false
+// on the phone we own, and the heartbeat reports them so a different install
+// is visible (red-nose.md 13, 14).
 // The root probe (`su -c id`) runs on a background thread so the beacon
 // dispatcher never blocks (red-nose.md 7.1); read() returns the cached answer.
 class ProcessProbe(
