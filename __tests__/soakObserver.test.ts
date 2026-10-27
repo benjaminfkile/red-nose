@@ -6,6 +6,7 @@
 import {
   CSV_HEADER,
   formatCsvRow,
+  parseBeaconIds,
   pollBeacons,
   runObserver,
   type BeaconsResponse,
@@ -97,7 +98,7 @@ describe('CSV formatting', () => {
 });
 
 describe('pollBeacons', () => {
-  test('GETs /admin/beacons with the admin key header', async () => {
+  test('GETs /admin/beacons with the admin key as a bearer token', async () => {
     const calls: Array<{ url: string; init: RequestInit | undefined }> = [];
     const spy: typeof fetch = (async (url: string, init?: RequestInit) => {
       calls.push({ url, init });
@@ -112,7 +113,7 @@ describe('pollBeacons', () => {
 
     await pollBeacons({
       apiBaseUrl: 'https://api.example.org/',
-      adminKey: 'wbk_secret',
+      adminKey: 'wak_secret',
       fetchImpl: spy,
       now: () => OBSERVED_AT,
     });
@@ -121,8 +122,43 @@ describe('pollBeacons', () => {
     expect(calls[0].url).toBe('https://api.example.org/admin/beacons');
     expect(calls[0].init?.method).toBe('GET');
     const headers = calls[0].init?.headers as Record<string, string>;
-    expect(headers['X-Beacon-Key']).toBe('wbk_secret');
+    // Contracts 3.6: an admin API key goes in Authorization: Bearer.
+    expect(headers.Authorization).toBe('Bearer wak_secret');
     expect(headers.Accept).toBe('application/json');
+    expect(headers).not.toHaveProperty('X-Beacon-Key');
+  });
+
+  const threeBeacons: BeaconsResponse = {
+    items: [
+      beacon({ id: 21, name: 'phone-a' }),
+      beacon({ id: 22, name: 'phone-b' }),
+      beacon({ id: 23, name: 'phone-c' }),
+    ],
+    staleAfterS: 45,
+  };
+
+  test('keeps only the listed beacon ids', async () => {
+    const result = await pollBeacons({
+      apiBaseUrl: 'https://api.example.org',
+      adminKey: 'wak_secret',
+      beaconIds: [23, 22],
+      fetchImpl: mockOk(threeBeacons),
+      now: () => OBSERVED_AT,
+    });
+    expect(result.rows.map(r => r.split(',')[1])).toEqual(['22', '23']);
+  });
+
+  test('keeps every beacon when the id list is unset or empty', async () => {
+    for (const beaconIds of [undefined, []]) {
+      const result = await pollBeacons({
+        apiBaseUrl: 'https://api.example.org',
+        adminKey: 'wak_secret',
+        beaconIds,
+        fetchImpl: mockOk(threeBeacons),
+        now: () => OBSERVED_AT,
+      });
+      expect(result.rows.map(r => r.split(',')[1])).toEqual(['21', '22', '23']);
+    }
   });
 
   test('returns one CSV row per beacon in the response', async () => {
@@ -145,7 +181,7 @@ describe('pollBeacons', () => {
     };
     const result = await pollBeacons({
       apiBaseUrl: 'https://api.example.org',
-      adminKey: 'wbk_secret',
+      adminKey: 'wak_secret',
       fetchImpl: mockOk(body),
       now: () => OBSERVED_AT,
     });
@@ -168,6 +204,24 @@ describe('pollBeacons', () => {
     await expect(
       pollBeacons({ apiBaseUrl: 'https://api.example.org', adminKey: 'nope', fetchImpl: bad }),
     ).rejects.toThrow(/401/);
+  });
+});
+
+describe('parseBeaconIds (SOAK_BEACON_IDS)', () => {
+  test('unset or empty means every beacon', () => {
+    expect(parseBeaconIds(undefined)).toEqual([]);
+    expect(parseBeaconIds('')).toEqual([]);
+    expect(parseBeaconIds('  ')).toEqual([]);
+  });
+
+  test('reads comma separated integers, whitespace tolerated', () => {
+    expect(parseBeaconIds('22')).toEqual([22]);
+    expect(parseBeaconIds(' 22 , 7,9 ')).toEqual([22, 7, 9]);
+  });
+
+  test('rejects anything that is not an integer', () => {
+    expect(() => parseBeaconIds('22,abc')).toThrow(/abc/);
+    expect(() => parseBeaconIds('2.5')).toThrow();
   });
 });
 
@@ -195,7 +249,7 @@ describe('runObserver', () => {
 
       const done = runObserver({
         apiBaseUrl: 'https://api.example.org',
-        adminKey: 'wbk_secret',
+        adminKey: 'wak_secret',
         fetchImpl: impl,
         intervalMs: 60_000,
         now: () => OBSERVED_AT,
@@ -250,7 +304,7 @@ describe('runObserver', () => {
 
       const done = runObserver({
         apiBaseUrl: 'https://api.example.org',
-        adminKey: 'wbk_secret',
+        adminKey: 'wak_secret',
         fetchImpl: impl,
         intervalMs: 60_000,
         now: () => OBSERVED_AT,

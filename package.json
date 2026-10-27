@@ -9,7 +9,9 @@
     "start": "react-native start",
     "test": "jest",
     "contracts:check": "node scripts/check-contracts.mjs",
-    "check:no-infra": "node scripts/check-no-infra.mjs"
+    "check:no-infra": "node scripts/check-no-infra.mjs",
+    "soak:observe": "tsx tools/soak-observer/index.ts",
+    "soak:report": "tsx tools/soak-observer/index.ts report"
   },
   "dependencies": {
     "@react-native/new-app-screen": "0.87.1",
@@ -41,6 +43,7 @@
     "jest": "^29.6.3",
     "prettier": "2.8.8",
     "react-test-renderer": "19.2.3",
+    "tsx": "4.23.15",
     "typescript": "^6.0.3"
   },
   "engines": {
