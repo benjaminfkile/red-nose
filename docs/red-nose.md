@@ -10,7 +10,7 @@ Red-Nose is the WMSFO v2 beacon app: a React Native user interface over a native
 |---|---|
 | Platform | Android 10 (API 29) or newer. `minSdk 29`; `compileSdk` and `targetSdk` as the React Native template sets them (37 and 36 today). Google Play services present (fused location, code scanner). Not rooted; the phone we own runs LineageOS (section 14). |
 | Install | A normal app, installed with `adb install -r -g`. Its data lives in `/data`, so no boot mode can make the platform see it as uninstalled. Red-Nose requests only normal and runtime permissions, never a signature or privileged one, so it needs neither `/system/priv-app` nor a privileged-permission allowlist and runs on any Android build. |
-| UI | React Native, bare CLI template (no Expo), TypeScript, Hermes. |
+| UI | React Native, bare CLI template (no Expo), TypeScript, Hermes. Every screen sits inside a 3 dp environment frame in the flavour's colour with a DEV or PROD tag, the same device as the admin panel's frame (section 15). |
 | Native | Kotlin. One foreground service in its own process, one React Native native module in the app process, one boot receiver. Process survival is the platform's, not a userspace watchdog's and not root's (section 5.3). |
 | Application id | `com.wmsfo.rednose` for the prod flavour and `com.wmsfo.rednose.dev` for the dev flavour (section 15), so both flavours install side by side on one phone (14.3); the launcher shows them as RedNose and RedNose-DEV. |
 | Processes | per installed flavour, the application id (React Native UI) and `<application id>:beacon` (the service). The service process never loads React Native. |
@@ -27,7 +27,7 @@ Repository `red-nose`, branch flow `dev` and `main` (section 16).
 ```
 red-nose/
   package.json  tsconfig.json  app.json  index.js  babel.config.js  metro.config.js  jest.config.js
-  App.tsx                              # navigation root: Enroll | Status | Debug
+  App.tsx                              # navigation root: Enroll | Status | Debug, inside the environment frame
   VERSION                              # semantic version, one line (section 15)
   CONTRACTS_SHA                        # API commit the vendored contracts came from
   CONFORMANCE_SHA                      # beacon-library commit the socket loop conformance scenarios came from (section 7.4)
@@ -39,6 +39,7 @@ red-nose/
     enroll/parseEnrollUrl.ts           # rednose://enroll?api=&token= parsing
     enroll/enrollApi.ts                # POST /beacons/enroll, GET /beacons/me (fetch)
     enroll/apiFlavour.ts               # which API origins a flavour admits at enrollment (9.1)
+    components/EnvFrame.tsx            # the 3 dp flavour-coloured frame and its DEV / PROD tag (section 15)
     screens/EnrollScreen.tsx  ScanScreen.tsx  ManualEnrollScreen.tsx
     screens/StatusScreen.tsx  ChecklistCard.tsx
     screens/debug/DebugScreen.tsx      # the debug shell over the seven screens (section 10)
@@ -94,6 +95,11 @@ red-nose/
       guard/DeviceGuard.kt             # watches the settings the beacon needs and reports them when wrong (section 5.5)
       guard/DeviceState.kt  MobileData.kt  # the read side of 5.5; the per-SIM mobile data switch
     app/src/main/res/xml/network_security_config.xml       # prod: cleartext off
+    app/src/main/res/mipmap-anydpi-v26/ic_launcher.xml  ic_launcher_round.xml   # adaptive icon: background colour + foreground vector (section 15)
+    app/src/main/res/drawable/ic_launcher_foreground.xml   # the reindeer and the squircle ring; the ring takes @color/env_frame
+    app/src/main/res/values/colors.xml                     # ic_launcher_background
+    app/src/dev/res/values/colors.xml                      # env_frame: the dev green
+    app/src/prod/res/values/colors.xml                     # env_frame: the prod red
     app/src/dev/res/xml/network_security_config.xml        # dev: cleartext allowed
     app/src/test/resources/conformance/                    # shared socket loop conformance scenarios (section 7.4), copied from beacon-library at CONFORMANCE_SHA
   provisioning/
@@ -640,6 +646,9 @@ The mounted phone is reached from anywhere over a WireGuard tunnel: the phone ru
 ## 15. Build, flavours, versioning
 
 - Flavours `dev` and `prod` differ in the application id (`com.wmsfo.rednose` for prod; the dev flavour sets `applicationIdSuffix ".dev"`, so both install side by side, 14.3), the launcher label (a `resValue` per flavour, `RedNose` and `RedNose-DEV`; `strings.xml` defines no `app_name`), the `BuildConfig` fields (contracts 8.5: `REDNOSE_DEFAULT_API_BASE_URL`, `REDNOSE_PROD_API_BASE_URL`, the intervals, backoff, ring size), and the network security config (dev allows cleartext). The namespace and the Kotlin packages stay `com.wmsfo.rednose` in both. The native module exposes `BuildConfig.FLAVOR`, `BuildConfig.APPLICATION_ID`, and the two URLs to JS as constants (4.2), and enrollment admits only the flavour's own API through them (9.1).
+- Environment colours (decided 2026-10-28, the admin panel's own): dev green `#66bb6a` and prod red `#f44336`, the `success.main` and `error.main` of the panel's dark palette, since the app's UI is dark. Each flavour defines them once as `@color/env_frame` in its `res/values/colors.xml`, and JS reads the same pair from a constant table keyed by the flavour constant (4.2); nothing else in the app is coloured by environment.
+- Launcher icon: an adaptive icon, the same drawing in both flavours (a line-drawn reindeer in cream on a night-blue ground, `#1b2a44`, nothing filled but the glowing red nose) with a squircle ring 5 dp wide inside the 66 dp safe zone in `@color/env_frame`, so the drawer shows RedNose with a red ring beside RedNose-DEV with a green ring under any launcher mask. The legacy PNG mipmaps are gone (`minSdk 29`, every launcher reads the adaptive icon).
+- Environment frame: `EnvFrame` (`src/components/EnvFrame.tsx`), mounted once in `App.tsx` over every screen inside the safe area: an absolutely positioned, pointer-transparent view with a 3 dp border in the flavour colour and a small tag on its top edge reading `DEV` or `PROD` (the flavour constant, upper case) in white on the same colour. It never takes a touch and never scrolls away, the same device as the admin panel's `EnvFrame`.
 - The manifest requests only normal and runtime permissions, never a signature or privileged one, and does not set `android:persistent` (section 5.3), so the package is a plain install on any Android build.
 - `VERSION` holds the semantic version; the Gradle build reads it into `versionName` and derives `versionCode` from it (`major * 10000 + minor * 100 + patch`).
 - Release builds are signed by CI with a release key per flavour, one for dev and one for prod, that never lives in the repository. The master copy of each keystore (PKCS12, with its alias and passwords) is a secret in the operator's secrets manager; a copy sits in the GitHub environment of its flavour (`dev` admits the `dev` branch, `prod` admits `main`) as `REDNOSE_KEYSTORE_B64`, `REDNOSE_KEYSTORE_PASSWORD`, `REDNOSE_KEY_ALIAS`, and `REDNOSE_KEY_PASSWORD`. The workflow writes the keystore to the runner's temporary directory, hands Gradle its path in `REDNOSE_KEYSTORE_FILE`, and removes it when the job ends. A local release build has none of those variables and falls back to the checked-in debug keystore, so a locally built APK cannot replace a CI build on the phone without uninstalling first, which loses the enrollment (14.3); the same holds between the dev and prod flavours' keys. Losing a key costs one uninstall, reinstall, and enrollment, nothing more: there is no store listing tied to it.
@@ -695,6 +704,7 @@ Every drill is logged in the repository under `docs/soak/<date>.md` with the obs
 - Heartbeats are HTTP only; the socket carries locations only.
 - Enrollment happens after provisioning (section 14.1 order); the in-app scanner is the enrollment path, and the system camera can open a `rednose://enroll` link as well.
 - Both flavours install side by side (2026-10-28): the dev flavour carries the application id suffix `.dev` and the label RedNose-DEV, and each flavour admits only its own API at enrollment (9.1), so a code for dev can never enroll the prod build and the other way round. Chosen so the phone we own runs the dev and prod beacons together until the flight.
+- The flavour is visible on the phone (2026-10-28, Ben): the admin panel's green and red, a frame with a DEV or PROD tag around every screen, and a ring of the same colour around a shared reindeer launcher icon (15). Picked from four icon drawings; the line drawing with the glowing nose won.
 - The heartbeat telemetry `process` group carries `systemApp` and `rootAvailable` in place of `deviceOwnerMode` (section 8, contracts 4.2); both are facts about the install and read false on the phone we own. They are not checklist rows.
 - The API knows Red-Nose only as a key: debug mode is always available on the phone; the heartbeat's typed `health` core is filled from the phone's own probes and everything else rides in `debug` for the panel to show verbatim (section 8).
 - Hub invocations use the Java client's `Completable` overload and pass the payload as an object (7.4).
