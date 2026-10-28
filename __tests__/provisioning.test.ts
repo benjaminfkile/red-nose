@@ -108,6 +108,28 @@ describe('AndroidManifest.xml (red-nose.md 5.5, 14: a normal app, no kiosk)', ()
   });
 });
 
+describe('android/app/build.gradle (red-nose.md 14.3, 15: the flavours install side by side)', () => {
+  const gradle = fs.readFileSync(path.join(ROOT, 'android', 'app', 'build.gradle'), 'utf8');
+
+  test('the dev flavour carries the application id suffix .dev', () => {
+    const dev = gradle.match(/\bdev\s*\{[\s\S]*?\n\s*\}/);
+    expect(dev).not.toBeNull();
+    expect(dev![0]).toContain('applicationIdSuffix ".dev"');
+  });
+
+  test('each flavour sets its own launcher label', () => {
+    expect(gradle).toContain('resValue "string", "app_name", "RedNose-DEV"');
+    expect(gradle).toContain('resValue "string", "app_name", "RedNose"');
+  });
+
+  test('strings.xml defines no app_name', () => {
+    const strings = path.join(ROOT, 'android', 'app', 'src', 'main', 'res', 'values', 'strings.xml');
+    if (fs.existsSync(strings)) {
+      expect(fs.readFileSync(strings, 'utf8')).not.toContain('name="app_name"');
+    }
+  });
+});
+
 describe('.github/workflows/android.yml (red-nose.md 16: CI ships the APK only)', () => {
   const workflow = fs.readFileSync(
     path.join(ROOT, '.github', 'workflows', 'android.yml'),

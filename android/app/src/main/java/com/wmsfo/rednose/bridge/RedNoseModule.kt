@@ -13,8 +13,12 @@ import com.facebook.react.modules.core.DeviceEventManagerModule
 import com.google.mlkit.vision.barcode.common.Barcode
 import com.google.mlkit.vision.codescanner.GmsBarcodeScannerOptions
 import com.google.mlkit.vision.codescanner.GmsBarcodeScanning
+import com.wmsfo.rednose.BuildConfig
+import com.wmsfo.rednose.enroll.ApiFlavour
 import com.wmsfo.rednose.ipc.IBeaconListener
 import com.wmsfo.rednose.ipc.IBeaconService
+import com.wmsfo.rednose.log.BeaconJson
+import com.wmsfo.rednose.store.Enrollment
 
 // The full 4.2 RN native module (red-nose.md 4.2).  Binds to :beacon on resume
 // and unbinds on pause; every AIDL call is exposed as a Promise-returning
@@ -34,6 +38,15 @@ class RedNoseModule(private val reactContext: ReactApplicationContext)
     private var pickRoutePromise: Promise? = null
 
     override fun getName(): String = NAME
+
+    // Build constants for JS (red-nose.md 4.2, 15): the flavour and the two URLs
+    // drive enrollment's origin rule (9.1).
+    override fun getConstants(): Map<String, Any> = mapOf(
+        "flavour" to BuildConfig.FLAVOR,
+        "applicationId" to BuildConfig.APPLICATION_ID,
+        "prodApiBaseUrl" to BuildConfig.REDNOSE_PROD_API_BASE_URL,
+        "defaultApiBaseUrl" to BuildConfig.REDNOSE_DEFAULT_API_BASE_URL,
+    )
 
     override fun initialize() {
         super.initialize()
@@ -100,6 +113,17 @@ class RedNoseModule(private val reactContext: ReactApplicationContext)
 
     @ReactMethod
     fun saveEnrollment(enrollmentJson: String, promise: Promise) {
+        // Each flavour enrolls only against its own API (red-nose.md 9.1).
+        val apiBaseUrl = try {
+            BeaconJson.decodeFromString(Enrollment.serializer(), enrollmentJson).apiBaseUrl
+        } catch (t: Throwable) {
+            promise.reject("bad_enrollment", t.message ?: t.javaClass.simpleName)
+            return
+        }
+        if (!ApiFlavour.admits(apiBaseUrl, BuildConfig.FLAVOR, BuildConfig.REDNOSE_PROD_API_BASE_URL)) {
+            promise.reject("wrong_flavour", "this build enrolls only against its own API")
+            return
+        }
         withService(promise) { it.saveEnrollment(enrollmentJson); promise.resolve(null) }
     }
 

@@ -116,10 +116,14 @@ android {
     productFlavors {
         dev {
             dimension "env"
+            // Installs beside prod (red-nose.md 14.3, 15).
+            applicationIdSuffix ".dev"
+            resValue "string", "app_name", "RedNose-DEV"
             buildConfigField "String", "REDNOSE_DEFAULT_API_BASE_URL", "\"${prop('REDNOSE_DEV_API_BASE_URL', 'http://10.0.2.2:5000')}\""
         }
         prod {
             dimension "env"
+            resValue "string", "app_name", "RedNose"
             buildConfigField "String", "REDNOSE_DEFAULT_API_BASE_URL", "\"${prop('REDNOSE_PROD_API_BASE_URL', 'https://prod-api.invalid')}\""
         }
     }

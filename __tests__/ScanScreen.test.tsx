@@ -1,7 +1,8 @@
 // ScanScreen tests (red-nose.md 9.1): the Play services code scanner path via
 // NativeRedNose.scanQrCode.  Verifies enrollment exchange on success, idle on
 // cancel (null), the fallback message on scanner_unavailable, and that a
-// second tap while a scan is open does not start another.
+// second tap while a scan is open does not start another, and that a code for
+// the other flavour's API makes no request.
 
 import React from 'react';
 import ReactTestRenderer from 'react-test-renderer';
@@ -160,5 +161,32 @@ describe('ScanScreen (red-nose.md 9.1)', () => {
     // Now a fresh tap opens a new scan.
     await ReactTestRenderer.act(async () => { tap(scanButton!); });
     expect(stub.scanQrCode).toHaveBeenCalledTimes(2);
+  });
+
+  test('a code for the other flavour shows the message and makes no request', async () => {
+    stub.scanQrCode.mockResolvedValueOnce(ENROLL_URL);
+    const fetchImpl = jest.fn(async () => new Response('{}', { status: 200 }));
+    const origFetch = globalThis.fetch;
+    globalThis.fetch = fetchImpl as unknown as typeof fetch;
+    let tree!: ReactTestRenderer.ReactTestRenderer;
+    try {
+      await ReactTestRenderer.act(async () => {
+        tree = ReactTestRenderer.create(
+          <ScanScreen
+            onEnrolled={() => {}}
+            onManual={() => {}}
+            flavour="dev"
+            prodApiBaseUrl="https://api.example.org"
+          />,
+        );
+      });
+      await ReactTestRenderer.act(async () => { await Promise.resolve(); });
+      await ReactTestRenderer.act(async () => { await Promise.resolve(); });
+    } finally {
+      globalThis.fetch = origFetch;
+    }
+    expect(collectText(tree.root)).toContain('this code is for the other build (dev or prod); open that app');
+    expect(fetchImpl).not.toHaveBeenCalled();
+    expect(stub.saveEnrollment).not.toHaveBeenCalled();
   });
 });

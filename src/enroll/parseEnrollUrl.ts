@@ -1,7 +1,11 @@
 // URL grammar for the QR code and the rednose:// deep link (red-nose.md 9.1):
 //   rednose://enroll?api=<encoded https url>&token=<wet_ token>
 // The token matches ^wet_[A-Za-z0-9_-]{43}$; the API URL must be https (or http
-// in the dev flavour).  Anything else is rejected.
+// in the dev flavour).  Anything else is rejected as 'not an enrollment code'.
+// Given the flavour and the prod API URL, a well-formed code whose API origin
+// the flavour does not admit (apiFlavour.ts) is rejected as 'wrong flavour'.
+
+import { apiAllowedForFlavour } from './apiFlavour';
 
 export type ParsedEnrollUrl = {
   apiBaseUrl: string;
@@ -11,6 +15,10 @@ export type ParsedEnrollUrl = {
 export type ParseOptions = {
   /** When true, http:// is accepted for the api URL (dev flavour, red-nose.md 15). */
   allowHttp?: boolean;
+  /** BuildConfig.FLAVOR; with prodApiBaseUrl, enables the origin rule (9.1). */
+  flavour?: string;
+  /** REDNOSE_PROD_API_BASE_URL (contracts 8.5). */
+  prodApiBaseUrl?: string;
 };
 
 const TOKEN_RE = /^wet_[A-Za-z0-9_-]{43}$/;
@@ -64,6 +72,13 @@ export function parseEnrollUrl(raw: string, opts: ParseOptions = {}): ParsedEnro
   if (!TOKEN_RE.test(token)) throw new Error('not an enrollment code');
   if (!isAllowedApiUrl(apiBaseUrl, opts.allowHttp === true)) {
     throw new Error('not an enrollment code');
+  }
+  if (
+    typeof opts.flavour === 'string' &&
+    typeof opts.prodApiBaseUrl === 'string' &&
+    !apiAllowedForFlavour(apiBaseUrl, opts.flavour, opts.prodApiBaseUrl)
+  ) {
+    throw new Error('wrong flavour');
   }
   return { apiBaseUrl, token };
 }
