@@ -130,6 +130,39 @@ describe('android/app/build.gradle (red-nose.md 14.3, 15: the flavours install s
   });
 });
 
+describe('launcher icon resources (red-nose.md 15: the flavour shows on the phone)', () => {
+  const SRC = path.join(ROOT, 'android', 'app', 'src');
+  const RES = path.join(SRC, 'main', 'res');
+
+  test.each(['ic_launcher.xml', 'ic_launcher_round.xml'])('mipmap-anydpi-v26/%s is the adaptive icon', name => {
+    const file = path.join(RES, 'mipmap-anydpi-v26', name);
+    expect(fs.existsSync(file)).toBe(true);
+    const body = fs.readFileSync(file, 'utf8');
+    expect(body).toContain('<adaptive-icon');
+    expect(body).toContain('@drawable/ic_launcher_foreground');
+    expect(body).toContain('@color/ic_launcher_background');
+  });
+
+  test('no legacy mipmap density directory remains', () => {
+    const left = fs.readdirSync(RES).filter(d => /^mipmap-.*dpi$/.test(d));
+    expect(left).toEqual([]);
+  });
+
+  test('each flavour defines its own env_frame colour', () => {
+    const dev = fs.readFileSync(path.join(SRC, 'dev', 'res', 'values', 'colors.xml'), 'utf8');
+    const prod = fs.readFileSync(path.join(SRC, 'prod', 'res', 'values', 'colors.xml'), 'utf8');
+    expect(dev).toMatch(/<color name="env_frame">#66BB6A<\/color>/i);
+    expect(prod).toMatch(/<color name="env_frame">#F44336<\/color>/i);
+  });
+
+  test('the foreground takes the ring colour from @color/env_frame only', () => {
+    const body = fs.readFileSync(path.join(RES, 'drawable', 'ic_launcher_foreground.xml'), 'utf8');
+    expect(body.match(/@color\/env_frame/g) ?? []).toHaveLength(1);
+    expect(body).not.toMatch(/#66BB6A/i);
+    expect(body).not.toMatch(/#F44336/i);
+  });
+});
+
 describe('.github/workflows/android.yml (red-nose.md 16: CI ships the APK only)', () => {
   const workflow = fs.readFileSync(
     path.join(ROOT, '.github', 'workflows', 'android.yml'),

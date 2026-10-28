@@ -1,5 +1,7 @@
-// Navigation root (red-nose.md 2, 9.1, 10).  Three screens: Enroll (no stored
-// key), Status (enrolled), and Debug (always available once enrolled).  The
+// Navigation root (red-nose.md 2, 9.1, 10, 15).  Three screens: Enroll (no
+// stored key), Status (enrolled), and Debug (always available once enrolled).
+// The environment frame (EnvFrame, a DEV or PROD tag in the flavour colour)
+// sits over whichever screen shows, the loading spinner included.  The
 // service ownership split lives in :beacon; JS only reads state and drives
 // enrollment.
 
@@ -11,6 +13,7 @@ import { EnrollScreen } from './src/screens/EnrollScreen';
 import { StatusScreen } from './src/screens/StatusScreen';
 import { DebugScreen } from './src/screens/debug/DebugScreen';
 import { NativeRedNose } from './src/native/NativeRedNose';
+import { EnvFrame } from './src/components/EnvFrame';
 
 function App() {
   const state = useServiceState();
@@ -45,6 +48,7 @@ function App() {
             onDebug={() => setDebug(true)}
           />
         )}
+        <EnvFrame flavour={build.flavour} />
       </SafeAreaView>
     </SafeAreaProvider>
   );

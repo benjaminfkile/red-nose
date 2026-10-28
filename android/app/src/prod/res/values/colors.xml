@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- The prod environment colour (red-nose.md 15): the launcher icon's ring. -->
+<resources>
+    <color name="env_frame">#F44336</color>
+</resources>

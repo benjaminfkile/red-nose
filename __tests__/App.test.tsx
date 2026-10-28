@@ -8,6 +8,13 @@ import React from 'react';
 import ReactTestRenderer from 'react-test-renderer';
 import { NativeModules } from 'react-native';
 import App from '../App';
+import { EnrollScreen } from '../src/screens/EnrollScreen';
+
+// The real SafeAreaProvider renders nothing until native insets arrive; the
+// library's own mock renders its children at once.
+jest.mock('react-native-safe-area-context', () =>
+  require('react-native-safe-area-context/jest/mock').default,
+);
 
 beforeAll(() => {
   // R2's App.tsx reads native state on mount; provide a stub that resolves to a
@@ -63,6 +70,17 @@ test('renders correctly', async () => {
   await ReactTestRenderer.act(() => {
     ReactTestRenderer.create(<App />);
   });
+});
+
+// red-nose.md 15: the environment frame sits over every screen.
+test('the dev flavour shows the Enroll screen inside the DEV frame', async () => {
+  let tree!: ReactTestRenderer.ReactTestRenderer;
+  await ReactTestRenderer.act(async () => {
+    tree = ReactTestRenderer.create(<App />);
+  });
+  expect(tree.root.findAllByType(EnrollScreen)).toHaveLength(1);
+  expect(tree.root.findAllByProps({ testID: 'env-frame' }).length).toBeGreaterThan(0);
+  expect(tree.root.findByProps({ testID: 'env-tag' }).props.children).toBe('DEV');
 });
 
 // red-nose.md 5.3: Red-Nose is a normal app; android:persistent is honoured
