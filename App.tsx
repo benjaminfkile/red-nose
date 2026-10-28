@@ -1,7 +1,8 @@
 // Navigation root (red-nose.md 2, 9.1, 10, 15).  Three screens: Enroll (no
 // stored key), Status (enrolled), and Debug (always available once enrolled).
-// The environment frame (EnvFrame, a DEV or PROD tag in the flavour colour)
-// sits over whichever screen shows, the loading spinner included.  The
+// The environment frame (EnvFrame, a border and a DEV or PROD tag in the
+// flavour colour) wraps whichever screen shows, the loading spinner included,
+// inside the SafeAreaView so it stays clear of the bars and corners.  The
 // service ownership split lives in :beacon; JS only reads state and drives
 // enrollment.
 
@@ -28,27 +29,28 @@ function App() {
     <SafeAreaProvider>
       <StatusBar barStyle="light-content" />
       <SafeAreaView style={styles.container} edges={['top', 'bottom']}>
-        {state == null ? (
-          <View style={styles.center}>
-            <ActivityIndicator />
-          </View>
-        ) : state.enrollment == null ? (
-          <EnrollScreen
-            onEnrolled={() => { /* next tick's ServiceState will carry enrollment */ }}
-            defaultApiBaseUrl={build.defaultApiBaseUrl}
-            allowHttp={build.flavour === 'dev'}
-            flavour={build.flavour}
-            prodApiBaseUrl={build.prodApiBaseUrl}
-          />
-        ) : debug ? (
-          <DebugScreen state={state} onBack={() => setDebug(false)} />
-        ) : (
-          <StatusScreen
-            state={state}
-            onDebug={() => setDebug(true)}
-          />
-        )}
-        <EnvFrame flavour={build.flavour} />
+        <EnvFrame flavour={build.flavour}>
+          {state == null ? (
+            <View style={styles.center}>
+              <ActivityIndicator />
+            </View>
+          ) : state.enrollment == null ? (
+            <EnrollScreen
+              onEnrolled={() => { /* next tick's ServiceState will carry enrollment */ }}
+              defaultApiBaseUrl={build.defaultApiBaseUrl}
+              allowHttp={build.flavour === 'dev'}
+              flavour={build.flavour}
+              prodApiBaseUrl={build.prodApiBaseUrl}
+            />
+          ) : debug ? (
+            <DebugScreen state={state} onBack={() => setDebug(false)} />
+          ) : (
+            <StatusScreen
+              state={state}
+              onDebug={() => setDebug(true)}
+            />
+          )}
+        </EnvFrame>
       </SafeAreaView>
     </SafeAreaProvider>
   );
