@@ -276,8 +276,10 @@ Updated 2026-10-28.
   disabled. The keyguard is disabled. Wireless adb is on port 5555 and
   survives reboots.
 - Both flavours of Red-Nose 0.1.0 installed as normal apps, each from its
-  CI build: `com.wmsfo.rednose.dev` (RedNose-DEV, dev build 1ab5e23) and
-  `com.wmsfo.rednose` (RedNose, prod build bda3a5d); `flags=[ HAS_CODE
+  CI build: `com.wmsfo.rednose.dev` (RedNose-DEV, dev build 26e6fb8) and
+  `com.wmsfo.rednose` (RedNose, prod build 1007055), each with the reindeer
+  launcher icon ringed in its colour and the DEV or PROD frame on every
+  screen (`docs/red-nose.md` 15); `flags=[ HAS_CODE
   ... ]`, no `SYSTEM`, no `PERSISTENT`, on both. Every provisioning row
   ok for both packages.
 - Each build is enrolled against its own API as the beacon named
