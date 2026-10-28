@@ -22,7 +22,7 @@ whole soak (the operator's build box runs it as a service):
 SOAK_API_BASE_URL=https://api-dev.example.org \
 SOAK_ADMIN_KEY=wak_... \
 SOAK_CSV_PATH=./soak.csv \
-SOAK_BEACON_IDS=22 \
+SOAK_BEACON_IDS=3 \
 npm run soak:observe
 ```
 
@@ -36,7 +36,7 @@ The report reads a CSV and answers the soak question in a few lines:
 
 ```sh
 npm run soak:report -- ./soak.csv            # every beacon in the file
-npm run soak:report -- ./soak.csv 22         # one beacon
+npm run soak:report -- ./soak.csv 3          # one beacon
 ```
 
 Per beacon: the window (first and last row), the number of rows, the largest

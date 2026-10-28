@@ -266,7 +266,7 @@ appended to the phone's authorized keys from the bench first.
 
 ## 12. Where the phone stands
 
-Updated 2026-10-25.
+Updated 2026-10-28.
 
 - LineageOS 24.0 (Android 17), official `fogo` nightly 20261022, flashed
   per section 3; MindTheGapps 17.0.0 arm64. No Google account on the
@@ -275,14 +275,21 @@ Updated 2026-10-25.
 - Setup wizard, the ROM's updater, and Play Protect's sideload prompt are
   disabled. The keyguard is disabled. Wireless adb is on port 5555 and
   survives reboots.
-- Red-Nose dev flavour 0.1.0 (CI build) installed as a normal app;
-  `flags=[ HAS_CODE ... ]`, no `SYSTEM`, no `PERSISTENT`. Every
-  provisioning row ok.
-- Enrolled against the dev API as beacon `red-nose-DEV` (key rotated at
-  the install). Proven: unattended reboot, service foreground in 46 s,
-  enrollment intact, heartbeats and GPS fixes (about 15 satellites used)
-  on dev. Telemetry: `identity.androidVersion` 17, `process.systemApp`
-  false, `process.rootAvailable` false.
+- Both flavours of Red-Nose 0.1.0 installed as normal apps, each from its
+  CI build: `com.wmsfo.rednose.dev` (RedNose-DEV, dev build 1ab5e23) and
+  `com.wmsfo.rednose` (RedNose, prod build bda3a5d); `flags=[ HAS_CODE
+  ... ]`, no `SYSTEM`, no `PERSISTENT`, on both. Every provisioning row
+  ok for both packages.
+- Each build is enrolled against its own API as the beacon named
+  `red-nose`: the dev build against dev, the prod build against prod. One
+  registration serves both because the dev API's beacon table mirrors
+  prod's, so the dev build was enrolled through the manual screen with the
+  key the prod registration minted (section 6). Proven on 2026-10-28:
+  both services foreground, both heartbeating, GPS fixes on both.
+  Telemetry: `identity.androidVersion` 17, `process.systemApp` false,
+  `process.rootAvailable` false. Earlier (2026-10-25 to 2026-10-28) the
+  phone carried the dev build alone as beacon 22 on dev: unattended reboot,
+  service foreground in 46 s, enrollment intact.
 - Remote access over the WireGuard tunnel proven 2026-10-27: Wi-Fi off, reboot
   on cellular, tunnel back within two minutes, adb over it, heartbeats on LTE
-  throughout. Red-Nose runs the CI build of 22fb967 (R14 to R16).
+  throughout.
