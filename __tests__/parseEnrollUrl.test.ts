@@ -138,3 +138,31 @@ describe('parseEnrollUrl', () => {
     expect(() => parseEnrollUrl(`rednose://enroll?api&token=${TOK}`)).toThrow('not an enrollment code');
   });
 });
+
+describe('parseEnrollUrl with the flavour options (red-nose.md 9.1)', () => {
+  const PROD = 'https://api.example.org';
+  const prodCode = `rednose://enroll?api=${encodeURIComponent(PROD)}&token=${TOK}`;
+  const devCode = `rednose://enroll?api=${encodeURIComponent('https://api-dev.example.org')}&token=${TOK}`;
+
+  test('the prod flavour admits the prod API only', () => {
+    const opts = { flavour: 'prod', prodApiBaseUrl: PROD };
+    expect(parseEnrollUrl(prodCode, opts).apiBaseUrl).toBe(PROD);
+    expect(() => parseEnrollUrl(devCode, opts)).toThrow('wrong flavour');
+  });
+
+  test('the dev flavour admits every API but the prod one', () => {
+    const opts = { flavour: 'dev', prodApiBaseUrl: PROD };
+    expect(parseEnrollUrl(devCode, opts).apiBaseUrl).toBe('https://api-dev.example.org');
+    expect(() => parseEnrollUrl(prodCode, opts)).toThrow('wrong flavour');
+  });
+
+  test('a malformed code is still not an enrollment code', () => {
+    for (const flavour of ['prod', 'dev']) {
+      const opts = { flavour, prodApiBaseUrl: PROD };
+      expect(() => parseEnrollUrl('rednose://enroll', opts)).toThrow('not an enrollment code');
+      expect(() => parseEnrollUrl(
+        `rednose://enroll?api=${encodeURIComponent(PROD)}&token=wet_short`, opts,
+      )).toThrow('not an enrollment code');
+    }
+  });
+});

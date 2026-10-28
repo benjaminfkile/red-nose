@@ -154,7 +154,19 @@ export type LogUploadResult =
   | { ok: true; id: string; sizeBytes: number; receivedAt: string }
   | { ok: false; code: string; message: string };
 
+// Build constants from the module's getConstants (red-nose.md 4.2, 15).
+export type BuildConstants = {
+  flavour: string;
+  applicationId: string;
+  prodApiBaseUrl: string;
+  defaultApiBaseUrl: string;
+};
+
 type RawNativeRedNose = {
+  flavour?: string;
+  applicationId?: string;
+  prodApiBaseUrl?: string;
+  defaultApiBaseUrl?: string;
   getState(): Promise<string>;
   saveEnrollment(enrollmentJson: string): Promise<void>;
   clearEnrollment(): Promise<void>;
@@ -175,6 +187,17 @@ function raw(): RawNativeRedNose {
 }
 
 export const NativeRedNose = {
+  // React Native exposes getConstants entries as properties of the module;
+  // a stub without them reads as the dev flavour with empty URLs.
+  constants(): BuildConstants {
+    const r = (raw() ?? {}) as RawNativeRedNose;
+    return {
+      flavour: typeof r.flavour === 'string' ? r.flavour : 'dev',
+      applicationId: typeof r.applicationId === 'string' ? r.applicationId : '',
+      prodApiBaseUrl: typeof r.prodApiBaseUrl === 'string' ? r.prodApiBaseUrl : '',
+      defaultApiBaseUrl: typeof r.defaultApiBaseUrl === 'string' ? r.defaultApiBaseUrl : '',
+    };
+  },
   async getState(): Promise<ServiceState> {
     const s = await raw().getState();
     return JSON.parse(s) as ServiceState;

@@ -1,15 +1,22 @@
 // Manual enrollment path (red-nose.md 9.2): API base URL + key, GET /beacons/me,
 // then saveEnrollment.  Prefilled with REDNOSE_DEFAULT_API_BASE_URL when supplied.
+// Given the flavour and the prod API URL, an API origin the flavour does not
+// admit (9.1) shows the other-build message before any request; a wrong_flavour
+// rejection from saveEnrollment shows it too.
 
 import React, { useState } from 'react';
 import { StyleSheet, Text, View, TextInput, TouchableOpacity, ActivityIndicator } from 'react-native';
 import { NativeRedNose } from '../native/NativeRedNose';
 import { fetchMe, EnrollError } from '../enroll/enrollApi';
+import { apiAllowedForFlavour } from '../enroll/apiFlavour';
+import { WRONG_FLAVOUR_MESSAGE } from './ScanScreen';
 
 export type ManualEnrollScreenProps = {
   defaultApiBaseUrl?: string;
   onEnrolled: () => void;
   onBack: () => void;
+  flavour?: string;
+  prodApiBaseUrl?: string;
 };
 
 export function ManualEnrollScreen(props: ManualEnrollScreenProps) {
@@ -20,6 +27,14 @@ export function ManualEnrollScreen(props: ManualEnrollScreenProps) {
 
   const submit = async () => {
     if (busy) return;
+    if (
+      typeof props.flavour === 'string' &&
+      typeof props.prodApiBaseUrl === 'string' &&
+      !apiAllowedForFlavour(api.trim(), props.flavour, props.prodApiBaseUrl)
+    ) {
+      setMessage(WRONG_FLAVOUR_MESSAGE);
+      return;
+    }
     setBusy(true);
     setMessage(null);
     try {
@@ -34,7 +49,9 @@ export function ManualEnrollScreen(props: ManualEnrollScreenProps) {
       });
       props.onEnrolled();
     } catch (e: unknown) {
-      if (e instanceof EnrollError) {
+      if ((e as { code?: unknown } | null)?.code === 'wrong_flavour') {
+        setMessage(WRONG_FLAVOUR_MESSAGE);
+      } else if (e instanceof EnrollError) {
         if (e.status === 401) {
           setMessage('key not accepted');
         } else {

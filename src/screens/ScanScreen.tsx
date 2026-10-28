@@ -4,7 +4,9 @@
 // permission.  A resolved string is fed to handleValue; a cancel resolves
 // with null and returns to this screen; a scanner_unavailable rejection
 // falls back to manual entry.  The rednose://enroll intent path through
-// getInitialEnrollUrl is unchanged.
+// getInitialEnrollUrl is unchanged.  A code for the other flavour's API (a
+// 'wrong flavour' parse or a wrong_flavour rejection from saveEnrollment) shows
+// WRONG_FLAVOUR_MESSAGE and makes no request.
 
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { StyleSheet, Text, View, TouchableOpacity, ActivityIndicator } from 'react-native';
@@ -16,7 +18,11 @@ export type ScanScreenProps = {
   onEnrolled: () => void;
   onManual: () => void;
   allowHttp?: boolean;
+  flavour?: string;
+  prodApiBaseUrl?: string;
 };
+
+export const WRONG_FLAVOUR_MESSAGE = 'this code is for the other build (dev or prod); open that app';
 
 export function ScanScreen(props: ScanScreenProps) {
   const [busy, setBusy] = useState(false);
@@ -30,7 +36,11 @@ export function ScanScreen(props: ScanScreenProps) {
     setBusy(true);
     setMessage(null);
     try {
-      const parsed = parseEnrollUrl(value, { allowHttp: props.allowHttp });
+      const parsed = parseEnrollUrl(value, {
+        allowHttp: props.allowHttp,
+        flavour: props.flavour,
+        prodApiBaseUrl: props.prodApiBaseUrl,
+      });
       const res = await exchange(parsed.apiBaseUrl, parsed.token);
       await NativeRedNose.saveEnrollment({
         apiBaseUrl: res.apiBaseUrl,
@@ -45,6 +55,8 @@ export function ScanScreen(props: ScanScreenProps) {
       const err = e as { code?: string; message?: string; requestId?: string | null };
       if (err.code === 'enrollment_token_invalid') {
         setMessage('this code was already used or expired; ask for a new one');
+      } else if (err.message === 'wrong flavour' || err.code === 'wrong_flavour') {
+        setMessage(WRONG_FLAVOUR_MESSAGE);
       } else if (err.message === 'not an enrollment code') {
         setMessage('not an enrollment code');
       } else {

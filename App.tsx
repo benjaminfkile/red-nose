@@ -3,17 +3,20 @@
 // service ownership split lives in :beacon; JS only reads state and drives
 // enrollment.
 
-import React, { useState } from 'react';
+import React, { useMemo, useState } from 'react';
 import { StatusBar, StyleSheet, View, ActivityIndicator } from 'react-native';
 import { SafeAreaProvider, SafeAreaView } from 'react-native-safe-area-context';
 import { useServiceState } from './src/state/useServiceState';
 import { EnrollScreen } from './src/screens/EnrollScreen';
 import { StatusScreen } from './src/screens/StatusScreen';
 import { DebugScreen } from './src/screens/debug/DebugScreen';
+import { NativeRedNose } from './src/native/NativeRedNose';
 
 function App() {
   const state = useServiceState();
   const [debug, setDebug] = useState(false);
+  // Flavour and URLs from the native module's constants (red-nose.md 4.2, 15).
+  const build = useMemo(() => NativeRedNose.constants(), []);
 
   // Android 15 with the app's targetSdk draws edge to edge (no hidden bars;
   // red-nose.md 5.5). SafeAreaView keeps every screen's content clear of the
@@ -27,7 +30,13 @@ function App() {
             <ActivityIndicator />
           </View>
         ) : state.enrollment == null ? (
-          <EnrollScreen onEnrolled={() => { /* next tick's ServiceState will carry enrollment */ }} />
+          <EnrollScreen
+            onEnrolled={() => { /* next tick's ServiceState will carry enrollment */ }}
+            defaultApiBaseUrl={build.defaultApiBaseUrl}
+            allowHttp={build.flavour === 'dev'}
+            flavour={build.flavour}
+            prodApiBaseUrl={build.prodApiBaseUrl}
+          />
         ) : debug ? (
           <DebugScreen state={state} onBack={() => setDebug(false)} />
         ) : (
