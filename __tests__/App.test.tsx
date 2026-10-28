@@ -72,15 +72,18 @@ test('renders correctly', async () => {
   });
 });
 
-// red-nose.md 15: the environment frame sits over every screen.
+// red-nose.md 15: every screen renders inside the environment frame.
 test('the dev flavour shows the Enroll screen inside the DEV frame', async () => {
   let tree!: ReactTestRenderer.ReactTestRenderer;
   await ReactTestRenderer.act(async () => {
     tree = ReactTestRenderer.create(<App />);
   });
   expect(tree.root.findAllByType(EnrollScreen)).toHaveLength(1);
-  expect(tree.root.findAllByProps({ testID: 'env-frame' }).length).toBeGreaterThan(0);
-  expect(tree.root.findByProps({ testID: 'env-tag' }).props.children).toBe('DEV');
+  const frames = tree.root.findAll(n => n.props.testID === 'env-frame' && typeof n.type !== 'string');
+  expect(frames.length).toBeGreaterThan(0);
+  const frame = frames[0];
+  expect(frame.findAllByType(EnrollScreen)).toHaveLength(1);
+  expect(frame.findByProps({ testID: 'env-tag' }).props.children).toBe('DEV');
 });
 
 // red-nose.md 5.3: Red-Nose is a normal app; android:persistent is honoured

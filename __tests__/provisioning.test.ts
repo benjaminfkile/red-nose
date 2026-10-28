@@ -161,6 +161,33 @@ describe('launcher icon resources (red-nose.md 15: the flavour shows on the phon
     expect(body).not.toMatch(/#66BB6A/i);
     expect(body).not.toMatch(/#F44336/i);
   });
+
+  // The circle mask shows the central 72 dp; the ring's outer edge stays
+  // inside it (32 dp on the sides, about 35.7 at the corners).
+  test('the ring is the 25 to 83 rounded square stroked 6, last in the file', () => {
+    const body = fs.readFileSync(path.join(RES, 'drawable', 'ic_launcher_foreground.xml'), 'utf8');
+    const paths = body.match(/<path[\s\S]*?\/?>/g) ?? [];
+    const ring = paths[paths.length - 1];
+    expect(ring).toContain(
+      'android:pathData="M45,25 L63,25 A20,20 0 0 1 83,45 L83,63 A20,20 0 0 1 63,83 L45,83 A20,20 0 0 1 25,63 L25,45 A20,20 0 0 1 45,25 Z"',
+    );
+    expect(ring).toContain('android:strokeWidth="6"');
+    expect(ring).toContain('@color/env_frame');
+    expect(body.lastIndexOf('</group>')).toBeLessThan(body.indexOf('@color/env_frame'));
+  });
+
+  test('one group scaled 0.72 about the centre wraps the drawing', () => {
+    const body = fs.readFileSync(path.join(RES, 'drawable', 'ic_launcher_foreground.xml'), 'utf8');
+    expect(body.match(/<group\b/g) ?? []).toHaveLength(1);
+    const group = body.slice(body.indexOf('<group'), body.indexOf('</group>'));
+    expect(group).toMatch(/android:scaleX="0\.72"/);
+    expect(group).toMatch(/android:scaleY="0\.72"/);
+    expect(group).toMatch(/android:pivotX="54"/);
+    expect(group).toMatch(/android:pivotY="54"/);
+    expect(group).toContain('<!-- Left antler. -->');
+    expect(group).toContain('<!-- Nose highlight. -->');
+    expect(group).not.toContain('@color/env_frame');
+  });
 });
 
 describe('.github/workflows/android.yml (red-nose.md 16: CI ships the APK only)', () => {

@@ -94,7 +94,7 @@ rows; the commands, so the bench never needs the script to read them:
 | Keyguard | `locksettings set-disabled true` |
 | Mobile data | `svc data enable`; `settings put global mobile_data 1` |
 | Safe mode | `settings put global safe_boot_disallowed 1` |
-| Wi-Fi (bench) | `cmd wifi connect-network <ssid> wpa2 <psk>` from the kit's credential file |
+| Wi-Fi | left alone by default (the phone lives on cellular; Wi-Fi only when Ben turns it on); `settings put global wifi_wakeup_enabled 0`. With the script's `--wifi` flag only: `cmd wifi connect-network <ssid> wpa2 <psk>` from the kit's credential file |
 | Wireless adb | `adb root`; `setprop persist.adb.tcp.port 5555`; `adb unroot` |
 
 All rows must print `ok`. `<package>` is `com.wmsfo.rednose` (the prod

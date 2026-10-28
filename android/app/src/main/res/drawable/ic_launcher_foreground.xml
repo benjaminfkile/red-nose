@@ -1,80 +1,93 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!-- The launcher icon's foreground (red-nose.md 15): a line-drawn reindeer in
-     cream, its glowing red nose, and a squircle ring inside the 66 dp safe zone
-     in the flavour colour, the only part that differs between them. -->
+     cream, its glowing red nose, and a squircle ring in the flavour colour, the
+     only part that differs between them. The launcher's circle mask shows only
+     the central 72 dp of the 108 dp canvas, 36 dp from the centre; the ring and
+     the drawing stay inside it. -->
 <vector xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:aapt="http://schemas.android.com/aapt"
     android:width="108dp"
     android:height="108dp"
     android:viewportWidth="108"
     android:viewportHeight="108">
-    <!-- Left antler. -->
-    <path
-        android:fillColor="#00000000"
-        android:strokeColor="#F3EEE6"
-        android:strokeWidth="3.2"
-        android:strokeLineCap="round"
-        android:strokeLineJoin="round"
-        android:pathData="M42,48 C38,38 37,30 40,22 M41,34 C35,33 31,29 30,24 M42,27 C47,25 49,21 49,17"/>
-    <!-- Right antler. -->
-    <path
-        android:fillColor="#00000000"
-        android:strokeColor="#F3EEE6"
-        android:strokeWidth="3.2"
-        android:strokeLineCap="round"
-        android:strokeLineJoin="round"
-        android:pathData="M66,48 C70,38 71,30 68,22 M67,34 C73,33 77,29 78,24 M66,27 C61,25 59,21 59,17"/>
-    <!-- Head. -->
-    <path
-        android:fillColor="#00000000"
-        android:strokeColor="#F3EEE6"
-        android:strokeWidth="3.2"
-        android:strokeLineCap="round"
-        android:strokeLineJoin="round"
-        android:pathData="M36,56 C34,46 44,44 54,44 C64,44 74,46 72,56 C70,66 66,78 54,80 C42,78 38,66 36,56 Z"/>
-    <!-- Ears. -->
-    <path
-        android:fillColor="#00000000"
-        android:strokeColor="#F3EEE6"
-        android:strokeWidth="3.2"
-        android:strokeLineCap="round"
-        android:strokeLineJoin="round"
-        android:pathData="M30,54 C26,52 25,48 28,47 L37,51 M78,54 C82,52 83,48 80,47 L71,51"/>
-    <!-- Eyes: round caps on a near-zero segment make dots. -->
-    <path
-        android:fillColor="#00000000"
-        android:strokeColor="#F3EEE6"
-        android:strokeWidth="4.5"
-        android:strokeLineCap="round"
-        android:strokeLineJoin="round"
-        android:pathData="M44,60 L44.1,60 M64,60 L64.1,60"/>
-    <!-- Glow around the nose. -->
-    <path android:pathData="M54,58 A14,14 0 1 1 54,86 A14,14 0 1 1 54,58 Z">
-        <aapt:attr name="android:fillColor">
-            <gradient
-                android:type="radial"
-                android:centerX="54"
-                android:centerY="72"
-                android:gradientRadius="14">
-                <item android:offset="0" android:color="#E6FF5A5A"/>
-                <item android:offset="0.55" android:color="#59FF3B3B"/>
-                <item android:offset="1" android:color="#00FF3B3B"/>
-            </gradient>
-        </aapt:attr>
-    </path>
-    <!-- Nose. -->
-    <path
-        android:fillColor="#FF3B3B"
-        android:pathData="M54,65.5 A6.5,6.5 0 1 1 54,78.5 A6.5,6.5 0 1 1 54,65.5 Z"/>
-    <!-- Nose highlight. -->
-    <path
-        android:fillColor="#D9FFFFFF"
-        android:pathData="M51.8,67.8 A2,2 0 1 1 51.8,71.8 A2,2 0 1 1 51.8,67.8 Z"/>
-    <!-- Ring in the flavour colour; corner radius 20 at a 16 dp inset keeps it
-         inside the safe zone's circle under any launcher mask. -->
+    <!-- The drawing, scaled to 0.72 about the canvas centre so it sits inside
+         the ring with its antlers and glow clear of it. -->
+    <group
+        android:scaleX="0.72"
+        android:scaleY="0.72"
+        android:pivotX="54"
+        android:pivotY="54">
+        <!-- Left antler. -->
+        <path
+            android:fillColor="#00000000"
+            android:strokeColor="#F3EEE6"
+            android:strokeWidth="3.2"
+            android:strokeLineCap="round"
+            android:strokeLineJoin="round"
+            android:pathData="M42,48 C38,38 37,30 40,22 M41,34 C35,33 31,29 30,24 M42,27 C47,25 49,21 49,17"/>
+        <!-- Right antler. -->
+        <path
+            android:fillColor="#00000000"
+            android:strokeColor="#F3EEE6"
+            android:strokeWidth="3.2"
+            android:strokeLineCap="round"
+            android:strokeLineJoin="round"
+            android:pathData="M66,48 C70,38 71,30 68,22 M67,34 C73,33 77,29 78,24 M66,27 C61,25 59,21 59,17"/>
+        <!-- Head. -->
+        <path
+            android:fillColor="#00000000"
+            android:strokeColor="#F3EEE6"
+            android:strokeWidth="3.2"
+            android:strokeLineCap="round"
+            android:strokeLineJoin="round"
+            android:pathData="M36,56 C34,46 44,44 54,44 C64,44 74,46 72,56 C70,66 66,78 54,80 C42,78 38,66 36,56 Z"/>
+        <!-- Ears. -->
+        <path
+            android:fillColor="#00000000"
+            android:strokeColor="#F3EEE6"
+            android:strokeWidth="3.2"
+            android:strokeLineCap="round"
+            android:strokeLineJoin="round"
+            android:pathData="M30,54 C26,52 25,48 28,47 L37,51 M78,54 C82,52 83,48 80,47 L71,51"/>
+        <!-- Eyes: round caps on a near-zero segment make dots. -->
+        <path
+            android:fillColor="#00000000"
+            android:strokeColor="#F3EEE6"
+            android:strokeWidth="4.5"
+            android:strokeLineCap="round"
+            android:strokeLineJoin="round"
+            android:pathData="M44,60 L44.1,60 M64,60 L64.1,60"/>
+        <!-- Glow around the nose. -->
+        <path android:pathData="M54,58 A14,14 0 1 1 54,86 A14,14 0 1 1 54,58 Z">
+            <aapt:attr name="android:fillColor">
+                <gradient
+                    android:type="radial"
+                    android:centerX="54"
+                    android:centerY="72"
+                    android:gradientRadius="14">
+                    <item android:offset="0" android:color="#E6FF5A5A"/>
+                    <item android:offset="0.55" android:color="#59FF3B3B"/>
+                    <item android:offset="1" android:color="#00FF3B3B"/>
+                </gradient>
+            </aapt:attr>
+        </path>
+        <!-- Nose. -->
+        <path
+            android:fillColor="#FF3B3B"
+            android:pathData="M54,65.5 A6.5,6.5 0 1 1 54,78.5 A6.5,6.5 0 1 1 54,65.5 Z"/>
+        <!-- Nose highlight. -->
+        <path
+            android:fillColor="#D9FFFFFF"
+            android:pathData="M51.8,67.8 A2,2 0 1 1 51.8,71.8 A2,2 0 1 1 51.8,67.8 Z"/>
+    </group>
+    <!-- Ring in the flavour colour: a rounded square from 25 to 83 (58 dp wide,
+         corner radius 20) stroked 6 dp, so its outer edge is 32 dp from the
+         centre on the sides and about 35.7 dp at the corners, inside the 36 dp
+         the circle mask shows. The first cut at 16 to 92 was clipped to a
+         sliver. -->
     <path
         android:fillColor="#00000000"
         android:strokeColor="@color/env_frame"
-        android:strokeWidth="5"
-        android:pathData="M36,16 L72,16 A20,20 0 0 1 92,36 L92,72 A20,20 0 0 1 72,92 L36,92 A20,20 0 0 1 16,72 L16,36 A20,20 0 0 1 36,16 Z"/>
+        android:strokeWidth="6"
+        android:pathData="M45,25 L63,25 A20,20 0 0 1 83,45 L83,63 A20,20 0 0 1 63,83 L45,83 A20,20 0 0 1 25,63 L25,45 A20,20 0 0 1 45,25 Z"/>
 </vector>

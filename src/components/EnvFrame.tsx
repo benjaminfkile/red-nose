@@ -1,7 +1,10 @@
-// The environment frame (red-nose.md 15): a pointer-transparent 3 dp border in
-// the flavour colour around every screen, with a DEV or PROD tag on its top
-// edge. The colours are the admin panel's own and match each flavour's
-// @color/env_frame, the launcher icon's ring.
+// The environment frame (red-nose.md 15): the wrapper every screen renders
+// inside, a flex-filling view with a 4 dp border in the flavour colour, a 16 dp
+// corner radius and a 6 dp margin, with a DEV or PROD tag on its top edge. It
+// sits inside the SafeAreaView, so it stays clear of the status bar, the
+// navigation bar and the display's rounded corners. The colours are the admin
+// panel's own and match each flavour's @color/env_frame, the launcher icon's
+// ring.
 
 import React from 'react';
 import { StyleSheet, Text, View } from 'react-native';
@@ -16,16 +19,12 @@ export function envColour(flavour: string): string {
   return flavour === 'prod' ? ENV_COLOURS.prod : ENV_COLOURS.dev;
 }
 
-export function EnvFrame({ flavour }: { flavour: string }) {
+// The tag renders after the children so it paints over the top border.
+export function EnvFrame({ flavour, children }: { flavour: string; children?: React.ReactNode }) {
   const colour = envColour(flavour);
   return (
-    <View
-      pointerEvents="none"
-      testID="env-frame"
-      accessibilityElementsHidden
-      importantForAccessibility="no-hide-descendants"
-      style={[styles.frame, { borderColor: colour }]}
-    >
+    <View testID="env-frame" style={[styles.frame, { borderColor: colour }]}>
+      {children}
       <View style={[styles.tag, { backgroundColor: colour }]}>
         <Text testID="env-tag" style={styles.tagText}>
           {flavour.toUpperCase()}
@@ -37,19 +36,15 @@ export function EnvFrame({ flavour }: { flavour: string }) {
 
 const styles = StyleSheet.create({
   frame: {
-    position: 'absolute',
-    top: 0,
-    right: 0,
-    bottom: 0,
-    left: 0,
-    borderWidth: 3,
-    borderRadius: 10,
-    zIndex: 1000,
-    elevation: 1000,
+    flex: 1,
+    margin: 6,
+    borderWidth: 4,
+    borderRadius: 16,
+    overflow: 'hidden',
   },
   tag: {
     position: 'absolute',
-    top: -1,
+    top: 0,
     right: 14,
     paddingHorizontal: 7,
     paddingVertical: 1,
