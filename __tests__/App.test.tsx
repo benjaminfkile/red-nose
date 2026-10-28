@@ -49,6 +49,11 @@ beforeAll(() => {
     pickRouteFile: jest.fn(async () => null),
     getInitialEnrollUrl: jest.fn(async () => null),
     scanQrCode: jest.fn(async () => null),
+    // getConstants entries (red-nose.md 4.2).
+    flavour: 'dev',
+    applicationId: 'com.wmsfo.rednose.dev',
+    prodApiBaseUrl: 'https://api.example.org',
+    defaultApiBaseUrl: 'https://api-dev.example.org',
   };
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   (NativeModules as any).RedNose = stub;

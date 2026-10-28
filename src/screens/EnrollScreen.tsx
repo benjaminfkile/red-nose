@@ -9,6 +9,8 @@ export type EnrollScreenProps = {
   onEnrolled: () => void;
   defaultApiBaseUrl?: string;
   allowHttp?: boolean;
+  flavour?: string;
+  prodApiBaseUrl?: string;
 };
 
 export function EnrollScreen(props: EnrollScreenProps) {
@@ -19,6 +21,8 @@ export function EnrollScreen(props: EnrollScreenProps) {
         defaultApiBaseUrl={props.defaultApiBaseUrl}
         onEnrolled={props.onEnrolled}
         onBack={() => setMode('scan')}
+        flavour={props.flavour}
+        prodApiBaseUrl={props.prodApiBaseUrl}
       />
     );
   }
@@ -27,6 +31,8 @@ export function EnrollScreen(props: EnrollScreenProps) {
       onEnrolled={props.onEnrolled}
       onManual={() => setMode('manual')}
       allowHttp={props.allowHttp}
+      flavour={props.flavour}
+      prodApiBaseUrl={props.prodApiBaseUrl}
     />
   );
 }
