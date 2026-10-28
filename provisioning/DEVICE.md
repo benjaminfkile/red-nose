@@ -141,6 +141,12 @@ the same; manual entry is also how a build enrolls with a key that was
 minted elsewhere, and its two fields take `input text` over adb after a
 tap on each.
 
+Each build's key is minted on its own API: rotate on prod for the prod
+build, rotate on dev for the dev build. The beacon is registered once, on
+prod; the prod to dev mirror carries its row to dev and keeps dev's own key
+columns for the `red-nose` beacon, so a dev rotate survives the mirror and a
+prod rotate never breaks the dev build (`docs/red-nose.md` 14.3).
+
 The enrollment lives in `EncryptedSharedPreferences` bound to the Android
 Keystore. It cannot be copied between installs or phones, only re-done.
 Never `pm clear` the package.
@@ -284,9 +290,11 @@ Updated 2026-10-28.
   ok for both packages.
 - Each build is enrolled against its own API as the beacon named
   `red-nose`: the dev build against dev, the prod build against prod. One
-  registration serves both because the dev API's beacon table mirrors
-  prod's, so the dev build was enrolled through the manual screen with the
-  key the prod registration minted (section 6). Proven on 2026-10-28:
+  registration (on prod) serves both: the mirror carries the row to dev and
+  keeps dev's own key for it, so each build's key is rotated and enrolled on
+  its own API (section 6). Both still hold the key the prod registration
+  minted on 2026-10-28 (the dev build took it through the manual screen);
+  the first rotate on either side parts them. Proven on 2026-10-28:
   both services foreground, both heartbeating, GPS fixes on both.
   Telemetry: `identity.androidVersion` 17, `process.systemApp` false,
   `process.rootAvailable` false. Earlier (2026-10-25 to 2026-10-28) the
