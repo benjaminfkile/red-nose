@@ -12,8 +12,8 @@ Red-Nose is the WMSFO v2 beacon app: a React Native user interface over a native
 | Install | A normal app, installed with `adb install -r -g`. Its data lives in `/data`, so no boot mode can make the platform see it as uninstalled. Red-Nose requests only normal and runtime permissions, never a signature or privileged one, so it needs neither `/system/priv-app` nor a privileged-permission allowlist and runs on any Android build. |
 | UI | React Native, bare CLI template (no Expo), TypeScript, Hermes. |
 | Native | Kotlin. One foreground service in its own process, one React Native native module in the app process, one boot receiver. Process survival is the platform's, not a userspace watchdog's and not root's (section 5.3). |
-| Application id | `com.wmsfo.rednose` in both flavours (section 15). |
-| Processes | `com.wmsfo.rednose` (React Native UI) and `com.wmsfo.rednose:beacon` (the service). The service process never loads React Native. |
+| Application id | `com.wmsfo.rednose` for the prod flavour and `com.wmsfo.rednose.dev` for the dev flavour (section 15), so both flavours install side by side on one phone (14.3); the launcher shows them as RedNose and RedNose-DEV. |
+| Processes | per installed flavour, the application id (React Native UI) and `<application id>:beacon` (the service). The service process never loads React Native. |
 | Distribution | The signed APK that CI builds (section 16), installed over `adb`; one signing key per flavour, no store, no self-update. |
 | Roles | None. The API knows Red-Nose only as a key; debug mode is always available to whoever holds the phone. |
 | Storage | Enrollment fields in Keystore-backed `EncryptedSharedPreferences`, a ring-buffer log file, and two per-boot counters. No fixes are ever stored. |
@@ -38,6 +38,7 @@ red-nose/
     state/useServiceState.ts           # subscribes to service state events, exposes ServiceState
     enroll/parseEnrollUrl.ts           # rednose://enroll?api=&token= parsing
     enroll/enrollApi.ts                # POST /beacons/enroll, GET /beacons/me (fetch)
+    enroll/apiFlavour.ts               # which API origins a flavour admits at enrollment (9.1)
     screens/EnrollScreen.tsx  ScanScreen.tsx  ManualEnrollScreen.tsx
     screens/StatusScreen.tsx  ChecklistCard.tsx
     screens/debug/DebugScreen.tsx      # the debug shell over the seven screens (section 10)
@@ -191,6 +192,7 @@ export type NativeRedNose = {
   pickRouteFile(): Promise<string | null>;        // ACTION_OPEN_DOCUMENT, application/json; content:// URI or null
   getInitialEnrollUrl(): Promise<string | null>;  // the rednose:// URL the Activity was launched with, once
   scanQrCode(): Promise<string | null>;           // Play services code scanner; null on cancel, `scanner_unavailable` on failure
+  constants(): BuildConstants;                    // { flavour, applicationId, prodApiBaseUrl, defaultApiBaseUrl } from BuildConfig (section 15), synchronous
 };
 ```
 
@@ -264,7 +266,7 @@ Notification: channel `beacon`, importance low, ongoing, not dismissible, text i
 ### 5.2 Wake locks and power
 
 - The service holds a `PARTIAL_WAKE_LOCK` for its whole life. Location updates every 250 ms keep the radio awake anyway; the wake lock keeps the send loop scheduled during the gaps.
-- Doze: provisioning puts the package on the device idle allowlist from `adb` (`dumpsys deviceidle whitelist +com.wmsfo.rednose`), so Doze deferral never applies; the checklist shows the state.
+- Doze: provisioning puts the package on the device idle allowlist from `adb` (`dumpsys deviceidle whitelist +<application id>`), so Doze deferral never applies; the checklist shows the state.
 - Screen: the service never touches the screen. Provisioning (section 14) sets stay-awake-while-charging on the device so the notification stays visible.
 
 ### 5.3 Process survival
@@ -294,7 +296,7 @@ The phone is an ordinary phone that anyone may use for other apps. Whatever the 
 | Mobile data | on: `TelephonyManager.isDataEnabled` for the default data subscription (the switch is kept per SIM in `Settings.Global` `mobile_data<subId>`, which is the fallback read; the plain `mobile_data` key can stay 1 while data is off) | quick settings, or `adb shell svc data enable` |
 | Battery saver | off: `PowerManager.isPowerSaveMode` is false (battery saver can switch GPS off while the screen is off) | quick settings, or `adb shell cmd power set-mode 0` |
 | Runtime permissions | granted: `checkSelfPermission` for `ACCESS_FINE_LOCATION`, `ACCESS_COARSE_LOCATION`, `ACCESS_BACKGROUND_LOCATION`, `POST_NOTIFICATIONS`, `READ_PHONE_STATE` | the permission rows of 14.2 (`pm grant` and `appops set` over `adb`) |
-| Doze allowlist | exempt: `PowerManager.isIgnoringBatteryOptimizations` | `adb shell dumpsys deviceidle whitelist +com.wmsfo.rednose` |
+| Doze allowlist | exempt: `PowerManager.isIgnoringBatteryOptimizations` | `adb shell dumpsys deviceidle whitelist +<application id>` |
 
 **When it checks.** Immediately on every change the platform announces: a `ContentObserver` on `AIRPLANE_MODE_ON`, `mobile_data`, and `mobile_data<subId>` of the default data subscription, and a receiver for `LocationManager.MODE_CHANGED_ACTION` and `PowerManager.ACTION_POWER_SAVE_MODE_CHANGED`, all registered in `:beacon`. As a backstop for changes that announce nothing (a revoked permission, the Doze allowlist), a full sweep of every item runs once when the service is created and then every `REDNOSE_GUARD_SWEEP_MS` (5000). A check reads the system API only; the guard runs no shell command and holds no shell. Sweeps never overlap; a request that arrives during a sweep causes exactly one more sweep after it.
 
@@ -505,13 +507,13 @@ One `Json { encodeDefaults = true; explicitNulls = true; ignoreUnknownKeys = tru
 ### 9.1 QR path
 
 1. `ScanScreen` uses the Google Play services code scanner through `NativeRedNose.scanQrCode`: a full-screen system activity behind one native call (`GmsBarcodeScanning`, QR format only, auto-zoom on). The app never touches the camera and needs no CAMERA permission. The screen opens the scanner automatically once on mount and offers a "scan a code" button to open it again; a resolved string is fed to `parseEnrollUrl`, a cancel resolves to `null` and returns to the screen, and a `scanner_unavailable` failure (the scanner module not yet installed by Play services) shows "scanner unavailable (Play services): enter the code manually" and keeps the manual-entry button visible. `MainActivity.onCreate` warms the module through `ModuleInstallClient` so the first scan does not wait. The `rednose://enroll` intent-filter path through `getInitialEnrollUrl` is unchanged: an incoming URL is parsed directly, skipping the scanner.
-2. `parseEnrollUrl` accepts exactly `rednose://enroll?api=<encoded https url>&token=<wet_ token>`; the token must match `^wet_[A-Za-z0-9_-]{43}$`; the API URL must be `https` (or `http` in the dev flavour). Anything else shows "not an enrollment code".
+2. `parseEnrollUrl` accepts exactly `rednose://enroll?api=<encoded https url>&token=<wet_ token>`; the token must match `^wet_[A-Za-z0-9_-]{43}$`; the API URL must be `https` (or `http` in the dev flavour), and its origin (scheme, host, port) must be one the flavour admits: the prod flavour admits only the origin of `REDNOSE_PROD_API_BASE_URL`, the dev flavour admits every other origin and never that one (`src/enroll/apiFlavour.ts`, contracts 8.5). Anything malformed shows "not an enrollment code"; a well-formed code for the other flavour shows "this code is for the other build (dev or prod); open that app". The native module applies the same rule in `saveEnrollment` (`ApiFlavour.kt`) and rejects with `wrong_flavour`, so no path, scanned, linked, or typed, enrolls a build against the other flavour's API.
 3. `enrollApi.exchange(api, token)`: `POST {api}/beacons/enroll { token }`. `404 enrollment_token_invalid` shows "this code was already used or expired; ask for a new one". Other failures show the `code` and `requestId` and offer retry.
 4. On `200`, the JS side calls `NativeRedNose.saveEnrollment(response fields)` and navigates to Status. The key exists in JS memory only between steps 3 and 4.
 
 ### 9.2 Manual path
 
-`ManualEnrollScreen`: API base URL (prefilled with `REDNOSE_DEFAULT_API_BASE_URL`) and key fields. `GET {api}/beacons/me` with the key; on `200` `saveEnrollment` with the response fields plus the typed key. A `401` shows "key not accepted".
+`ManualEnrollScreen`: API base URL (prefilled with `REDNOSE_DEFAULT_API_BASE_URL`) and key fields. The typed URL must pass the flavour rule of 9.1 (else the same message, before any request); `GET {api}/beacons/me` with the key; on `200` `saveEnrollment` with the response fields plus the typed key. A `401` shows "key not accepted".
 
 ### 9.3 Storage
 
@@ -581,7 +583,7 @@ Why no root, decided 2026-10-25. The first phone ran stock Motorola firmware roo
 1. Unlock the bootloader and flash LineageOS with its official recovery and the Google apps package (MindTheGapps) per the LineageOS wiki for the device: the additional partitions, the recovery, format data, sideload the ROM, sideload the Google apps. The device-specific gotchas are in 14.4 and `provisioning/DEVICE.md`.
 2. First boot needs hands: skip the whole setup wizard (no Google account is ever added, Wi-Fi can be skipped), enable developer options, USB debugging, and rooted debugging (it gives `adb root` to the operator on a cable, never root to an app, and the provisioning script needs it for one row), accept the USB debugging dialog from the provisioning host.
 3. Run the operator kit's provisioning script (14.2) with the CI APK next to it. It installs Red-Nose with `adb install -r -g` and asserts the package is not a system app.
-4. Confirm the install: `adb shell dumpsys package com.wmsfo.rednose` shows `flags=[ HAS_CODE ... ]` with neither `SYSTEM` nor `PERSISTENT`. `provisioning/DEVICE.md` section 8 is the full check.
+4. Confirm the install: `adb shell dumpsys package <application id>` shows `flags=[ HAS_CODE ... ]` with neither `SYSTEM` nor `PERSISTENT`. `provisioning/DEVICE.md` section 8 is the full check.
 5. Enroll (section 9).
 
 ### 14.2 Provisioning rows (the operator kit's script, plain `adb shell`)
@@ -591,13 +593,13 @@ Why no root, decided 2026-10-25. The first phone ran stock Motorola firmware roo
 | Setup wizard | `settings put secure user_setup_complete 1`, `settings put global device_provisioned 1`, `pm disable-user --user 0` on the ROM's and Google's setup wizard packages, so a reboot never lands in a wizard |
 | No self-updates | `pm disable-user --user 0` on the ROM's updater package; `settings put global package_verifier_user_consent -1` so a sideload never waits on a Play Protect prompt |
 | Google Play services present | `pm path com.google.android.gms` is non-empty (the fused provider and the code scanner, section 9.1) |
-| Install | `adb install -r -g <apk>`; then `dumpsys package` must show no `SYSTEM` flag (a system app would be subject to the overlay failure above) |
-| Runtime permissions | `pm grant com.wmsfo.rednose <perm>` for `ACCESS_FINE_LOCATION`, `ACCESS_COARSE_LOCATION`, `ACCESS_BACKGROUND_LOCATION`, `POST_NOTIFICATIONS`, `READ_PHONE_STATE` (no CAMERA: the QR path uses the Play services code scanner, section 9.1) |
-| Location appops | `appops set com.wmsfo.rednose FINE_LOCATION allow` and `appops set com.wmsfo.rednose COARSE_LOCATION allow`, so the grant is not downgraded to coarse or foreground-only |
-| Battery / Doze | `dumpsys deviceidle whitelist +com.wmsfo.rednose` |
+| Install | `adb install -r -g <apk>`, once per flavour the phone carries (15, 14.3); then `dumpsys package` must show no `SYSTEM` flag (a system app would be subject to the overlay failure above) |
+| Runtime permissions | `pm grant <application id> <perm>` for `ACCESS_FINE_LOCATION`, `ACCESS_COARSE_LOCATION`, `ACCESS_BACKGROUND_LOCATION`, `POST_NOTIFICATIONS`, `READ_PHONE_STATE` (no CAMERA: the QR path uses the Play services code scanner, section 9.1). This row and every other per-package row run once for each installed flavour: `com.wmsfo.rednose`, `com.wmsfo.rednose.dev` (15) |
+| Location appops | `appops set <application id> FINE_LOCATION allow` and `appops set <application id> COARSE_LOCATION allow`, so the grant is not downgraded to coarse or foreground-only |
+| Battery / Doze | `dumpsys deviceidle whitelist +<application id>` |
 | Location mode | `settings put secure location_mode 3` |
 | Stay awake while charging | `settings put global stay_on_while_plugged_in 7` |
-| Permission auto-revoke | `appops set com.wmsfo.rednose AUTO_REVOKE_PERMISSIONS_IF_UNUSED ignore`, so the platform never removes the grants of an app nobody opens |
+| Permission auto-revoke | `appops set <application id> AUTO_REVOKE_PERMISSIONS_IF_UNUSED ignore`, so the platform never removes the grants of an app nobody opens |
 | Keyguard | `locksettings set-disabled true`: no lock screen at all, so the credential-encrypted store is readable from the first boot (5.5) and nothing needs a swipe |
 | Mobile data | `svc data enable` and `settings put global mobile_data 1`. `svc` writes the per-subscription key only; the plain key is what the read falls back to when `READ_PHONE_STATE` is not yet granted, and the checklist stays red until both are set |
 | No safe boot | `settings put global safe_boot_disallowed 1`: Android safe mode disables every non-system app (5.3) |
@@ -613,6 +615,8 @@ What the design accepts: the bootloader stays unlocked (a custom ROM needs it, a
 An update is `adb install -r -g <new apk>` from any machine with `adb` (the cable, wireless adb on the bench network, or wireless adb over the operator's VPN from anywhere, 14.5), then the provisioning script again with its install step skipped so every row is read back. No reboot: a package update kills the app's processes and the platform starts nothing on its own afterwards (opening the app only binds the service, which the platform freezes and drops again), so `BootReceiver` also handles `MY_PACKAGE_REPLACED` and starts the foreground service exactly as at boot (5.1); the service is foreground again within a minute of the install. The enrollment and every setting survive: the app is a normal package, and `-r` replaces the code in place. Never `pm clear` the package (it drops the enrollment, which is Keystore-bound and cannot be restored from a copy, 9.3) and never `adb uninstall` it for an update.
 
 Only CI builds go on the phone. The installed package is signed with the flavour's release key (section 15); `adb install -r` refuses an APK with a different signature, and uninstalling to switch signatures loses the enrollment. A locally built APK (debug keystore) therefore never replaces a CI build; it goes on an emulator or a spare phone.
+
+Both flavours on one phone (2026-10-28). The dev flavour's application id is `com.wmsfo.rednose.dev` (15), so to Android the dev and prod builds are two unrelated apps: each has its own enrollment, Keystore, log ring, counters, notification channel, boot receiver, and foreground service, and installing, updating, or removing one never touches the other. Both pull GPS at once; the chip serves both. The phone we own carries both until the flight, each enrolled against its own API; removing the dev one before the flight night is tidiness, not a need. Two things follow. The per-package provisioning rows (14.2) run once per installed flavour. And an enrollment link must be aimed at the right app, because both declare the `rednose://enroll` intent-filter: over `adb`, `am start ... -p <application id>`; a tapped link gets Android's chooser; the in-app scanner and manual entry need no aiming because the app is already open. Either way the wrong app refuses the code (9.1), so a mix-up costs a retry, never a build enrolled against the other API.
 
 ### 14.4 The phone we own
 
@@ -635,7 +639,7 @@ The mounted phone is reached from anywhere over a WireGuard tunnel: the phone ru
 
 ## 15. Build, flavours, versioning
 
-- Flavours `dev` and `prod` differ only in `BuildConfig` fields (contracts 8.5: `REDNOSE_DEFAULT_API_BASE_URL`, `REDNOSE_PROD_API_BASE_URL`, the intervals, backoff, ring size) and the network security config (dev allows cleartext). Same application id, so a phone holds one flavour at a time.
+- Flavours `dev` and `prod` differ in the application id (`com.wmsfo.rednose` for prod; the dev flavour sets `applicationIdSuffix ".dev"`, so both install side by side, 14.3), the launcher label (a `resValue` per flavour, `RedNose` and `RedNose-DEV`; `strings.xml` defines no `app_name`), the `BuildConfig` fields (contracts 8.5: `REDNOSE_DEFAULT_API_BASE_URL`, `REDNOSE_PROD_API_BASE_URL`, the intervals, backoff, ring size), and the network security config (dev allows cleartext). The namespace and the Kotlin packages stay `com.wmsfo.rednose` in both. The native module exposes `BuildConfig.FLAVOR`, `BuildConfig.APPLICATION_ID`, and the two URLs to JS as constants (4.2), and enrollment admits only the flavour's own API through them (9.1).
 - The manifest requests only normal and runtime permissions, never a signature or privileged one, and does not set `android:persistent` (section 5.3), so the package is a plain install on any Android build.
 - `VERSION` holds the semantic version; the Gradle build reads it into `versionName` and derives `versionCode` from it (`major * 10000 + minor * 100 + patch`).
 - Release builds are signed by CI with a release key per flavour, one for dev and one for prod, that never lives in the repository. The master copy of each keystore (PKCS12, with its alias and passwords) is a secret in the operator's secrets manager; a copy sits in the GitHub environment of its flavour (`dev` admits the `dev` branch, `prod` admits `main`) as `REDNOSE_KEYSTORE_B64`, `REDNOSE_KEYSTORE_PASSWORD`, `REDNOSE_KEY_ALIAS`, and `REDNOSE_KEY_PASSWORD`. The workflow writes the keystore to the runner's temporary directory, hands Gradle its path in `REDNOSE_KEYSTORE_FILE`, and removes it when the job ends. A local release build has none of those variables and falls back to the checked-in debug keystore, so a locally built APK cannot replace a CI build on the phone without uninstalling first, which loses the enrollment (14.3); the same holds between the dev and prod flavours' keys. Losing a key costs one uninstall, reinstall, and enrollment, nothing more: there is no store listing tied to it.
@@ -661,7 +665,7 @@ Runs on the real device against the dev API for at least 30 days before December
 | `adb install -r -g` of a build over the running one | service foreground again within 60 s of the install with no reboot and no touch, enrollment intact, heartbeats resume |
 | Airplane mode switched on from quick settings, switched off again after a minute | `guard wrong airplaneMode` in the log within 5 s and `debug.guard.wrong` carrying `airplaneMode` in the first heartbeat after the network returns; `guard ok airplaneMode` once it is off; first delivered fix within 15 s of the network returning |
 | Kill from recents | the UI process dies, the `:beacon` process does not; heartbeats continue |
-| `adb shell am force-stop com.wmsfo.rednose`, then reboot | the service stays down until the reboot (accepted, 5.3) and is back within 120 s of boot |
+| `adb shell am force-stop <application id>`, then reboot | the service stays down until the reboot (accepted, 5.3) and is back within 120 s of boot |
 | `kill -9` of the `:beacon` pid from `adb root` (rooted debugging on the bench) | service back within 60 s through `START_STICKY`; `serviceRestartCount` up by one |
 | Location switched off; battery saver switched on; mobile data switched off (each from quick settings, one at a time, switched back after a minute) | each reported wrong within 5 s with its WARN line, its `seenWrong` count up by one, and `debug.guard.wrong` naming it in the next heartbeat; the INFO line and an empty `wrong` once it is back |
 | Location permission set to "Don't allow" in Settings, app info, then `pm grant` over `adb` | the processes restart within 60 s, the creation sweep reports `permissions` wrong, fixes are delivered again within 5 s of the grant without a reboot |
@@ -690,6 +694,7 @@ Every drill is logged in the repository under `docs/soak/<date>.md` with the obs
 - Replay stops at the end of the route (no loop).
 - Heartbeats are HTTP only; the socket carries locations only.
 - Enrollment happens after provisioning (section 14.1 order); the in-app scanner is the enrollment path, and the system camera can open a `rednose://enroll` link as well.
+- Both flavours install side by side (2026-10-28): the dev flavour carries the application id suffix `.dev` and the label RedNose-DEV, and each flavour admits only its own API at enrollment (9.1), so a code for dev can never enroll the prod build and the other way round. Chosen so the phone we own runs the dev and prod beacons together until the flight.
 - The heartbeat telemetry `process` group carries `systemApp` and `rootAvailable` in place of `deviceOwnerMode` (section 8, contracts 4.2); both are facts about the install and read false on the phone we own. They are not checklist rows.
 - The API knows Red-Nose only as a key: debug mode is always available on the phone; the heartbeat's typed `health` core is filled from the phone's own probes and everything else rides in `debug` for the panel to show verbatim (section 8).
 - Hub invocations use the Java client's `Completable` overload and pass the payload as an object (7.4).

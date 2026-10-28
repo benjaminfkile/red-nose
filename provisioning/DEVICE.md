@@ -84,20 +84,23 @@ rows; the commands, so the bench never needs the script to read them:
 | Setup wizard | `settings put secure user_setup_complete 1`; `settings put global device_provisioned 1`; `pm disable-user --user 0 org.lineageos.setupwizard`; same for `com.google.android.setupwizard` |
 | No self-updates | `pm disable-user --user 0 org.lineageos.updater`; `settings put global package_verifier_user_consent -1` |
 | Play services | `pm path com.google.android.gms` non-empty |
-| Install | `adb install -r -g <apk>`; then `dumpsys package com.wmsfo.rednose` shows no `SYSTEM` flag |
-| Permissions | `pm grant com.wmsfo.rednose android.permission.<perm>` for `ACCESS_FINE_LOCATION`, `ACCESS_COARSE_LOCATION`, `ACCESS_BACKGROUND_LOCATION`, `POST_NOTIFICATIONS`, `READ_PHONE_STATE` |
-| Location appops | `appops set com.wmsfo.rednose FINE_LOCATION allow`; same for `COARSE_LOCATION` |
-| Doze | `dumpsys deviceidle whitelist +com.wmsfo.rednose` |
+| Install | `adb install -r -g <apk>`, once per flavour (the prod and the dev build are two apps, `com.wmsfo.rednose` and `com.wmsfo.rednose.dev`); then `dumpsys package <package>` shows no `SYSTEM` flag |
+| Permissions | `pm grant <package> android.permission.<perm>` for `ACCESS_FINE_LOCATION`, `ACCESS_COARSE_LOCATION`, `ACCESS_BACKGROUND_LOCATION`, `POST_NOTIFICATIONS`, `READ_PHONE_STATE` |
+| Location appops | `appops set <package> FINE_LOCATION allow`; same for `COARSE_LOCATION` |
+| Doze | `dumpsys deviceidle whitelist +<package>` |
 | Location | `settings put secure location_mode 3` |
 | Stay awake | `settings put global stay_on_while_plugged_in 7` |
-| Auto-revoke | `appops set com.wmsfo.rednose AUTO_REVOKE_PERMISSIONS_IF_UNUSED ignore` |
+| Auto-revoke | `appops set <package> AUTO_REVOKE_PERMISSIONS_IF_UNUSED ignore` |
 | Keyguard | `locksettings set-disabled true` |
 | Mobile data | `svc data enable`; `settings put global mobile_data 1` |
 | Safe mode | `settings put global safe_boot_disallowed 1` |
 | Wi-Fi (bench) | `cmd wifi connect-network <ssid> wpa2 <psk>` from the kit's credential file |
 | Wireless adb | `adb root`; `setprop persist.adb.tcp.port 5555`; `adb unroot` |
 
-All rows must print `ok`.
+All rows must print `ok`. `<package>` is `com.wmsfo.rednose` (the prod
+build) or `com.wmsfo.rednose.dev` (the dev build); the per-package rows run
+once for each flavour on the phone, and the kit's script loops over every
+Red-Nose package it finds installed.
 
 Rows that bit on this ROM:
 
@@ -122,14 +125,21 @@ response carries `enrollment.url`, valid 15 minutes). Then, from any `adb`
 host, cold start only:
 
 ```
-adb shell am force-stop com.wmsfo.rednose
-adb shell "am start -a android.intent.action.VIEW -d 'rednose://enroll?api=...&token=wet_...'"
+adb shell am force-stop <package>
+adb shell "am start -a android.intent.action.VIEW -d 'rednose://enroll?api=...&token=wet_...' -p <package>"
 ```
 
 The inner quotes matter: without them the phone's shell splits the URL at
-`&` and the app says "not an enrollment code". The kit's enrollment helper
-does the quoting. The QR from the admin panel and "enter manually" (API
-base URL plus the `wbk_` key) work the same.
+`&` and the app says "not an enrollment code". `-p <package>` matters when
+both flavours are installed: both declare the `rednose://enroll` link, and
+without it Android asks on the screen which app gets it. The kit's
+enrollment helper does the quoting and takes the package. The wrong app
+refuses the code anyway (`docs/red-nose.md` 9.1): the prod build takes a
+code for the prod API only, the dev build never does. The QR from the
+admin panel and "enter manually" (API base URL plus the `wbk_` key) work
+the same; manual entry is also how a build enrolls with a key that was
+minted elsewhere, and its two fields take `input text` over adb after a
+tap on each.
 
 The enrollment lives in `EncryptedSharedPreferences` bound to the Android
 Keystore. It cannot be copied between installs or phones, only re-done.
@@ -145,7 +155,8 @@ adb install -r -g red-nose-<flavour>-<version>-<sha>.apk
 ```
 
 then the provisioning script again with its install step skipped, so every
-row is read back. No reboot: the install kills the app, and the app's boot
+row is read back. Each flavour updates its own package; the other is
+untouched. No reboot: the install kills the app, and the app's boot
 receiver also answers the package-replaced broadcast and starts the service
 again within a minute (`docs/red-nose.md` 5.1, 14.3). The enrollment and
 every setting survive.
@@ -160,12 +171,12 @@ Plug into any machine with `adb` (no fastboot needed), or connect over
 wireless adb, then:
 
 ```
-adb shell dumpsys package com.wmsfo.rednose | grep -m1 'flags=\['   # HAS_CODE ..., no SYSTEM, no PERSISTENT
-adb shell dumpsys package com.wmsfo.rednose | grep -m1 versionName
-adb shell dumpsys activity services com.wmsfo.rednose | grep isForeground   # isForeground=true once enrolled
+adb shell dumpsys package <package> | grep -m1 'flags=\['   # HAS_CODE ..., no SYSTEM, no PERSISTENT; once per flavour
+adb shell dumpsys package <package> | grep -m1 versionName
+adb shell dumpsys activity services <package> | grep isForeground   # isForeground=true once enrolled
 adb shell logcat -d -s AndroidRuntime:E ReactNativeJS:E rednose:*    # empty apart from the log tag's own lines
 adb shell cmd package resolve-activity --brief -c android.intent.category.HOME -a android.intent.action.MAIN | tail -n1
-                                                                 # the ROM's launcher, never com.wmsfo.rednose
+                                                                 # the ROM's launcher, never a Red-Nose package
 adb exec-out screencap -p > shot.png                             # what the screen shows
 ```
 
@@ -184,7 +195,7 @@ example:
 
 ```
 adb shell cmd connectivity airplane-mode enable; sleep 5
-adb shell run-as com.wmsfo.rednose sh -c 'grep "guard wrong" files/rednose-a.log | tail -n 3'   # debug builds only
+adb shell run-as <package> sh -c 'grep "guard wrong" files/rednose-a.log | tail -n 3'   # debug builds only
 adb shell cmd connectivity airplane-mode disable
 ```
 
