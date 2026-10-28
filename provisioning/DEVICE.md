@@ -276,8 +276,8 @@ Updated 2026-10-28.
   disabled. The keyguard is disabled. Wireless adb is on port 5555 and
   survives reboots.
 - Both flavours of Red-Nose 0.1.0 installed as normal apps, each from its
-  CI build: `com.wmsfo.rednose.dev` (RedNose-DEV, dev build 26e6fb8) and
-  `com.wmsfo.rednose` (RedNose, prod build 1007055), each with the reindeer
+  CI build: `com.wmsfo.rednose.dev` (RedNose-DEV, dev build 83bbe83) and
+  `com.wmsfo.rednose` (RedNose, prod build 8b42e38), each with the reindeer
   launcher icon ringed in its colour and the DEV or PROD frame on every
   screen (`docs/red-nose.md` 15); `flags=[ HAS_CODE
   ... ]`, no `SYSTEM`, no `PERSISTENT`, on both. Every provisioning row
@@ -292,6 +292,8 @@ Updated 2026-10-28.
   `process.rootAvailable` false. Earlier (2026-10-25 to 2026-10-28) the
   phone carried the dev build alone as beacon 22 on dev: unattended reboot,
   service foreground in 46 s, enrollment intact.
+- Wi-Fi is off and stays off; the phone lives on cellular and provisioning
+  never turns Wi-Fi on (section 5).
 - Remote access over the WireGuard tunnel proven 2026-10-27: Wi-Fi off, reboot
   on cellular, tunnel back within two minutes, adb over it, heartbeats on LTE
   throughout.
